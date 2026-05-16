@@ -308,6 +308,7 @@ function makeCamera(spec: CameraSpec, bounds?: Element['bounds']): THREE.Perspec
   const cam = new THREE.PerspectiveCamera(spec.fov ?? 45, 1, spec.near ?? 0.1, spec.far ?? 2000);
   cam.position.set(...spec.position);
   cam.lookAt(...spec.target);
+  cam.userData.target = [...spec.target] as [number, number, number];
   if (spec.fit && bounds) {
     fitCameraToBounds(cam, spec, bounds);
   }
@@ -329,11 +330,14 @@ function fitCameraToBounds(
   const dir = cam.position.clone().sub(target).normalize();
   cam.position.copy(center.clone().add(dir.multiplyScalar(distance * 1.2)));
   cam.lookAt(center);
+  cam.userData.target = [center.x, center.y, center.z];
 }
 
 function targetOf(cam: THREE.PerspectiveCamera): [number, number, number] {
-  const t = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).add(cam.position);
-  return [t.x, t.y, t.z];
+  const t = cam.userData?.target;
+  if (Array.isArray(t) && t.length === 3) return [t[0], t[1], t[2]];
+  const fallback = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).add(cam.position);
+  return [fallback.x, fallback.y, fallback.z];
 }
 
 async function postState(payload: Record<string, unknown>): Promise<void> {
