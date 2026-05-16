@@ -30,6 +30,24 @@ function resolveServerBin() {
   }
 }
 
+function resolveCliBin() {
+  // This module lives in packages/cli/src/mcp.mjs; the bin is at ../bin/triscope.mjs.
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '../bin/triscope.mjs');
+}
+
+function triscopeOnPath() {
+  const r = spawnSync('triscope', ['--help'], { stdio: 'ignore' });
+  return r.status === 0;
+}
+
+function autoCaptureCommand() {
+  // Use bare `triscope` if it's on PATH (npm i -g'd), otherwise the
+  // absolute path to this CLI bin (monorepo / file-dep installs).
+  const cmd = triscopeOnPath() ? 'triscope' : `node ${resolveCliBin()}`;
+  return `${cmd} auto-capture --file "\${TOOL_INPUT_file_path:-}"`;
+}
+
 function hasClaudeCli() {
   const r = spawnSync('claude', ['--version'], { stdio: 'ignore' });
   return r.status === 0;
@@ -38,6 +56,12 @@ function hasClaudeCli() {
 function runClaude(args) {
   const r = spawnSync('claude', args, { stdio: 'inherit' });
   if (r.status !== 0) throw new Error(`claude ${args.join(' ')} exited ${r.status}`);
+}
+
+function isTriscopeRegistered() {
+  const r = spawnSync('claude', ['mcp', 'list'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (r.status !== 0) return false;
+  return /^triscope:/m.test(r.stdout?.toString?.() ?? '');
 }
 
 function writeProjectMcpJson(bin, url) {
@@ -68,12 +92,11 @@ function removeFromProjectMcpJson() {
 
 // Hook config — same shape across user/project scope. The "_triscope" tag
 // lets uninstall find and remove our entry without touching unrelated hooks.
-const HOOK_COMMAND = 'triscope auto-capture --file "${TOOL_INPUT_file_path:-}"';
 function triscopeHookSpec() {
   return {
     matcher: 'Edit|Write',
     _triscope: true,
-    hooks: [{ type: 'command', command: HOOK_COMMAND }],
+    hooks: [{ type: 'command', command: autoCaptureCommand() }],
   };
 }
 
@@ -170,13 +193,17 @@ OPTIONS
         'claude CLI not on PATH. Install Claude Code, or run `triscope mcp install --project`.',
       );
     }
-    runClaude([
-      'mcp', 'add', SERVER_NAME,
-      '--scope', 'user',
-      '--env', `TRISCOPE_URL=${url}`,
-      '--', 'node', bin,
-    ]);
-    console.log(`\ntriscope registered (user scope). bin: ${bin}`);
+    if (isTriscopeRegistered()) {
+      console.log('triscope MCP already registered (user scope), skipping mcp add.');
+    } else {
+      runClaude([
+        'mcp', 'add', SERVER_NAME,
+        '--scope', 'user',
+        '--env', `TRISCOPE_URL=${url}`,
+        '--', 'node', bin,
+      ]);
+      console.log(`\ntriscope registered (user scope). bin: ${bin}`);
+    }
     if (withHook) {
       const r = mergeHook('user');
       console.log(r.added
