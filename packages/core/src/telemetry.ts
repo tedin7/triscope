@@ -13,6 +13,32 @@ interface TelemetryOptions {
   statePath?: string;
   /** Override log file path. */
   logPath?: string;
+  /**
+   * Regex matching files that need a full-reload (instead of HMR) when they
+   * change. Default catches TSL material / mesh / element / shader sources,
+   * because vite HMR cannot remount a THREE.Material already in the scene.
+   * Pass `null` to disable.
+   */
+  forceReloadOn?: RegExp | null;
+}
+
+function readProjectLabs(cwd: string): Record<string, string> {
+  try {
+    const p = join(cwd, 'package.json');
+    if (!existsSync(p)) return {};
+    const pkg = JSON.parse(readFileSync(p, 'utf8'));
+    const labs = pkg?.triscope?.labs;
+    if (labs && typeof labs === 'object') {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(labs)) {
+        if (typeof v === 'string') out[k] = v;
+      }
+      return out;
+    }
+    return {};
+  } catch {
+    return {};
+  }
 }
 
 function readPackageName(cwd: string): string {
@@ -48,6 +74,15 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
   // Manifest is a map keyed by element name so multiple labs can co-exist —
   // each harness POSTs its own entry on boot.
   const manifestByElement: Record<string, unknown> = {};
+  // Pre-seed with package.json#triscope.labs so MCP capture_views works on
+  // the very first call (before any browser tab loads a lab).
+  for (const [name, labUrl] of Object.entries(readProjectLabs(process.cwd()))) {
+    manifestByElement[name] = { element: name, labUrl };
+  }
+  const forceReloadOn =
+    opts.forceReloadOn === null
+      ? null
+      : opts.forceReloadOn ?? /(\.tsl|Element|Mesh|Material|Shader)\.(ts|tsx|js|mjs)$/i;
 
   return {
     name: 'triscope-telemetry',
