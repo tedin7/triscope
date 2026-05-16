@@ -71,6 +71,11 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
 
   // In-memory pending knob queue. Harness polls and drains.
   const pendingKnobs: Array<{ element: string; key: string; value: unknown }> = [];
+  // Persisted knob state per element. Survives the harness's full-reload so
+  // the harness can re-hydrate to the last user-applied values instead of
+  // snapping back to spec defaults. Updated on every POST /__knob, read by
+  // the harness via GET /__knob/current on boot.
+  const lastKnobValues: Record<string, Record<string, unknown>> = {};
   // Manifest is a map keyed by element name so multiple labs can co-exist —
   // each harness POSTs its own entry on boot.
   const manifestByElement: Record<string, unknown> = {};
@@ -125,11 +130,23 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
       server.middlewares.use('/__knob', async (req, res, next) => {
         if (!req.method) return next();
         try {
+          // GET /__knob/current → persisted state (sub-path on the same prefix).
+          if (req.method === 'GET' && (req.url ?? '').startsWith('/current')) {
+            res.setHeader('content-type', 'application/json');
+            return res.end(JSON.stringify(lastKnobValues));
+          }
           if (req.method === 'POST') {
             const body = await readBody(req);
             const payload = JSON.parse(body);
-            if (Array.isArray(payload)) pendingKnobs.push(...payload);
-            else pendingKnobs.push(payload);
+            const updates: Array<{ element?: string; key?: string; value?: unknown }> =
+              Array.isArray(payload) ? payload : [payload];
+            for (const u of updates) {
+              if (typeof u?.element === 'string' && typeof u?.key === 'string') {
+                lastKnobValues[u.element] ??= {};
+                lastKnobValues[u.element][u.key] = u.value;
+              }
+            }
+            pendingKnobs.push(...updates as typeof pendingKnobs);
             res.statusCode = 200;
             return res.end('ok');
           }

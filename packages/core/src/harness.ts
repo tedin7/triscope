@@ -94,11 +94,23 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     cameras[name] = makeCamera(spec, element.bounds);
   }
 
-  // Knob state.
+  // Knob state. Persisted values (from a previous session before full-reload)
+  // override spec defaults so user-applied tuning survives shader edits.
   const knobValues: Record<string, number | string | boolean> = {};
   const knobs: Record<string, Knob> = element.knobs ?? {};
+  let persistedKnobs: Record<string, unknown> = {};
+  try {
+    const r = await fetch('/__knob/current');
+    if (r.ok) {
+      const all = (await r.json()) as Record<string, Record<string, unknown>>;
+      persistedKnobs = all?.[element.name] ?? {};
+    }
+  } catch {
+    /* dev server transient — fall through to defaults */
+  }
   for (const [k, spec] of Object.entries(knobs)) {
-    knobValues[k] = knobDefault(spec);
+    const saved = persistedKnobs[k];
+    knobValues[k] = (saved !== undefined ? saved : knobDefault(spec)) as number | string | boolean;
     if (element.onKnob) element.onKnob(handle, k, knobValues[k]);
   }
 
