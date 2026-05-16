@@ -79,6 +79,20 @@ because windPressure isn't actually wired to deformation. Use these instead:
   displacement keyed to `ctx.time`). `mode: 'real'` waits dt seconds between
   frames — use it for CPU-integrated state (springs, particles).
 
+## Reactive loop (optional): the PostToolUse hook
+
+`.claude/hooks.example.json` is a ready-to-paste hook config that wires
+`triscope auto-capture` to run after every Edit/Write. The effect: the next
+message to Claude includes a line like
+
+  `[triscope] ship motion: sailWanderEnvelope p2p=0.59 freq=0.22Hz`
+
+so Claude sees current FPS + probe activity automatically, without calling
+`capture_views` or `read_telemetry`. If you edit shader code and the next
+turn shows `p2p≈0` for a probe that was non-zero before, you broke motion.
+To enable: copy the `"hooks"` block from `.claude/hooks.example.json` into
+your `.claude/settings.local.json`.
+
 ## See also
 
 - [[threejs-telemetry-sink]] — the read-pixel-into-JSON pattern triscope is built on.

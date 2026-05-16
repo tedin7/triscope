@@ -1,0 +1,19 @@
+{
+  "_comment": "Optional Claude Code hook config for triscope. Copy the 'hooks' block into your .claude/settings.local.json (or settings.json) to enable. The hook runs `triscope auto-capture` after every Edit/Write — it reads /tmp/<project>-state.json from the dev server and prints a one-line motion summary so Claude sees current FPS + probe activity in its next turn, without having to call capture_views.",
+  "_what_you_get": "After editing src/triscope/ship-element.ts, the next message to Claude includes a line like: '[triscope] ship motion: sailWanderEnvelope p2p=0.59 freq=0.22Hz'. If peakToPeak is ~0 and windPressure>0, Claude sees the regression immediately without prompting.",
+  "_requirements": "1) `triscope` CLI on PATH (npm i -g @triscope/cli, or `node ./node_modules/@triscope/cli/bin/triscope.mjs`). 2) Dev server running (npm run dev). 3) The element you're iterating on has motionProbes declared (otherwise this hook stays silent).",
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "triscope auto-capture --file \"${TOOL_INPUT_file_path:-}\""
+          }
+        ]
+      }
+    ]
+  }
+}
