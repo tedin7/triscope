@@ -50,6 +50,13 @@ export interface MountHandle {
 export interface Element {
   name: string;
   mount: (args: { parent: THREE.Object3D; ctx: MountContext }) => MountHandle;
+  /**
+   * Optional override for the lab page URL. Either a path relative to the
+   * dev server (`/triscope-ship.html`) or a full URL. When set, the harness
+   * publishes it on the manifest so the MCP/CLI can route `capture_views`
+   * and `run_smoke` to the right page without hardcoding `/labs/<name>.html`.
+   */
+  labUrl?: string;
   /** Local-space bounding box. Used for auto-fitting cameras and the scene framing. */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** Named camera presets. Each becomes one pane in the lab grid. */

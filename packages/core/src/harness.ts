@@ -121,6 +121,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   // Post the element manifest once on boot so MCP can discover it.
   postManifest({
     element: element.name,
+    labUrl: element.labUrl ?? (typeof window !== 'undefined' ? window.location.pathname : undefined),
     cameras: Object.entries(element.cameras).map(([n, c]) => ({ name: n, ...c })),
     knobs: Object.entries(knobs).map(([n, k]) => ({ name: n, ...k, current: knobValues[n] })),
   }).catch(() => {});
