@@ -29,7 +29,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { setReference, diffReference, refsPath } from './refs.mjs';
+import { setReference, diffReference, refsPath, composeFilmstrip, motionMagnitudeFromFrames } from './refs.mjs';
 import { createBrowserPool } from './browser.mjs';
 
 const browserPool = createBrowserPool();
@@ -190,6 +190,72 @@ async function captureViews({ element, labUrl, inline = true }) {
   };
 }
 
+async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 'time', labUrl }) {
+  // Multi-frame capture per camera through the persistent browser pool.
+  // Returns per-camera filmstrip base64 + motionMagnitude scalar + telemetry.
+  const target = await resolveLabUrl({ element, labUrl });
+  const outDir = join(tmpdir(), `${PROJECT}-motion-${element ?? 'scene'}`);
+  mkdirSync(outDir, { recursive: true });
+  const t0 = Date.now();
+  const { call } = await browserPool.getPage(target);
+
+  // Pick the camera set: explicit single name or all cameras for the element.
+  let cameraOrder;
+  if (camera) {
+    cameraOrder = [camera];
+  } else {
+    const camsProbe = await call('Runtime.evaluate', {
+      expression: 'Object.keys(window.__TRISCOPE__.cameras)',
+      returnByValue: true,
+    });
+    cameraOrder = camsProbe.result.result.value ?? [];
+  }
+  if (!Array.isArray(cameraOrder) || cameraOrder.length === 0) {
+    throw new Error('no cameras available — is the harness mounted?');
+  }
+
+  const filmstripPaths = {};
+  const filmstripBase64 = {};
+  const magnitudeByCam = {};
+  for (const camName of cameraOrder) {
+    const result = await call('Runtime.evaluate', {
+      expression: `window.__TRISCOPE__.captureMotionFrames(${JSON.stringify(camName)}, ${JSON.stringify({ frames, dt, mode })})`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const dataUrls = result.result.result.value;
+    if (!Array.isArray(dataUrls) || dataUrls.length === 0) {
+      throw new Error(`captureMotionFrames returned empty for camera "${camName}"`);
+    }
+    const strip = composeFilmstrip(dataUrls);
+    const stripPath = join(outDir, `${camName}.filmstrip.png`);
+    writeFileSync(stripPath, strip);
+    filmstripPaths[camName] = stripPath;
+    filmstripBase64[camName] = strip.toString('base64');
+    magnitudeByCam[camName] = motionMagnitudeFromFrames(dataUrls);
+  }
+
+  const telemetry = await call('Runtime.evaluate', {
+    expression: 'JSON.stringify(window.__TRISCOPE__.sampleTelemetry())',
+    returnByValue: true,
+  });
+  const sample = JSON.parse(telemetry.result.result.value);
+
+  return {
+    element: element ?? null,
+    frames,
+    dt,
+    mode,
+    dir: outDir,
+    filmstrips: filmstripPaths,
+    cameraOrder,
+    motionMagnitude: magnitudeByCam,
+    captureMs: Date.now() - t0,
+    telemetry: sample,
+    _filmstripBase64: filmstripBase64,
+  };
+}
+
 async function runSmoke({ element }) {
   return new Promise((resolve, reject) => {
     const args = ['smoke'];
@@ -290,6 +356,25 @@ const tools = [
         labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
       },
       required: ['element', 'camera'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'capture_motion',
+    description:
+      'Capture N frames per camera spaced by dt seconds, compose each into an inline filmstrip image (frames tiled left-to-right), and return a numeric motionMagnitude per camera (0-255 scale; <1 = static, >5 = visible motion, >20 = vigorous). Use this WHEN THE ELEMENT HAS ANIMATION (shader-driven motion, sail billow, particle systems, oscillation) — a single capture_views frame cannot reveal whether motion is happening. For complementary numeric verification of hidden animated state, read_telemetry .elements.<name>.motion (if the Element declared motionProbes).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string' },
+        camera: { type: 'string', description: 'Single camera. Omit to capture all cameras (one filmstrip each).' },
+        frames: { type: 'number', description: 'Frames per filmstrip. Default 6.' },
+        dt: { type: 'number', description: 'Seconds between captured frames. Default 0.25.' },
+        mode: { type: 'string', enum: ['time', 'real'], description: '"time" (default) is deterministic (steps time.value, fast). "real" runs wall-clock (slower; needed for CPU-integrated state).' },
+        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
+        inline: { type: 'boolean', description: 'Include filmstrips as inline images. Default true.' },
+      },
+      required: ['element'],
       additionalProperties: false,
     },
   },
@@ -414,6 +499,32 @@ export async function startServer() {
               { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
             ],
           };
+        }
+        case 'capture_motion': {
+          const parsed = z
+            .object({
+              element: z.string(),
+              camera: z.string().optional(),
+              frames: z.number().int().min(2).max(32).optional(),
+              dt: z.number().positive().max(5).optional(),
+              mode: z.enum(['time', 'real']).optional(),
+              labUrl: z.string().optional(),
+              inline: z.boolean().optional(),
+            })
+            .parse(args);
+          const res = await captureMotion(parsed);
+          const { _filmstripBase64, ...summary } = res;
+          const text = JSON.stringify({
+            ...summary,
+            hint: '<1 = static, >5 = visible motion, >20 = vigorous (in motionMagnitude)',
+          }, null, 2);
+          if (parsed.inline === false) return { content: [{ type: 'text', text }] };
+          const content = [{ type: 'text', text }];
+          for (const cam of res.cameraOrder) {
+            const data = _filmstripBase64[cam];
+            if (data) content.push({ type: 'image', data, mimeType: 'image/png' });
+          }
+          return { content };
         }
         case 'run_smoke':
           return jsonResult(await runSmoke({ element: args.element }));
