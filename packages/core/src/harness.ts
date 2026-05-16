@@ -148,35 +148,47 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
 
   // Motion-probe ring buffers (one per declared probe key). 120 samples ≈ 2 s
   // at 60 fps; we expose summary stats + the last 32 samples in telemetry.
+  // Parallel `probeTimes` lets probeStats compute a true Hz from zero-crossings.
   const probeKeys = Object.keys(element.motionProbes ?? {});
   const PROBE_CAP = 120;
   const probeBuffers: Record<string, Float32Array> = {};
+  const probeTimes: Record<string, Float32Array> = {};
   const probeWriteIdx: Record<string, number> = {};
   const probeCount: Record<string, number> = {};
   for (const k of probeKeys) {
     probeBuffers[k] = new Float32Array(PROBE_CAP);
+    probeTimes[k] = new Float32Array(PROBE_CAP);
     probeWriteIdx[k] = 0;
     probeCount[k] = 0;
   }
-  function sampleProbe(key: string, value: number): void {
-    const buf = probeBuffers[key];
-    buf[probeWriteIdx[key]] = value;
-    probeWriteIdx[key] = (probeWriteIdx[key] + 1) % PROBE_CAP;
+  function sampleProbe(key: string, value: number, t: number): void {
+    const i = probeWriteIdx[key];
+    probeBuffers[key][i] = value;
+    probeTimes[key][i] = t;
+    probeWriteIdx[key] = (i + 1) % PROBE_CAP;
     if (probeCount[key] < PROBE_CAP) probeCount[key] += 1;
   }
   function probeStats(key: string): {
-    latest: number; mean: number; min: number; max: number; peakToPeak: number; samples: number[];
+    latest: number; mean: number; min: number; max: number; peakToPeak: number;
+    zeroCrossingsPerSec: number; dominantFreqHz: number;
+    samples: number[];
   } | null {
     const n = probeCount[key];
     if (n === 0) return null;
     const buf = probeBuffers[key];
+    const tbuf = probeTimes[key];
     const writeIdx = probeWriteIdx[key];
     // Walk in temporal order: oldest is at writeIdx when full, else 0.
     const ordered = new Array<number>(n);
+    const orderedT = new Array<number>(n);
     if (n < PROBE_CAP) {
-      for (let i = 0; i < n; i++) ordered[i] = buf[i];
+      for (let i = 0; i < n; i++) { ordered[i] = buf[i]; orderedT[i] = tbuf[i]; }
     } else {
-      for (let i = 0; i < PROBE_CAP; i++) ordered[i] = buf[(writeIdx + i) % PROBE_CAP];
+      for (let i = 0; i < PROBE_CAP; i++) {
+        const j = (writeIdx + i) % PROBE_CAP;
+        ordered[i] = buf[j];
+        orderedT[i] = tbuf[j];
+      }
     }
     let min = ordered[0], max = ordered[0], sum = 0;
     for (let i = 0; i < ordered.length; i++) {
@@ -186,6 +198,18 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       sum += v;
     }
     const mean = sum / ordered.length;
+    // Zero-crossing frequency: count sign changes of (sample - mean), divide
+    // by 2 (each full cycle has 2 zero-crossings), divide by duration.
+    let crossings = 0;
+    let prev = ordered[0] - mean;
+    for (let i = 1; i < ordered.length; i++) {
+      const cur = ordered[i] - mean;
+      if ((prev <= 0 && cur > 0) || (prev >= 0 && cur < 0)) crossings += 1;
+      prev = cur;
+    }
+    const duration = Math.max(orderedT[orderedT.length - 1] - orderedT[0], 1e-6);
+    const dominantFreqHz = (crossings / 2) / duration;
+    const zeroCrossingsPerSec = crossings / duration;
     const tail = ordered.slice(Math.max(0, ordered.length - 32));
     return {
       latest: ordered[ordered.length - 1],
@@ -193,6 +217,8 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       min: +min.toFixed(4),
       max: +max.toFixed(4),
       peakToPeak: +(max - min).toFixed(4),
+      zeroCrossingsPerSec: +zeroCrossingsPerSec.toFixed(2),
+      dominantFreqHz: +dominantFreqHz.toFixed(2),
       samples: tail,
     };
   }
@@ -270,7 +296,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       for (const k of probeKeys) {
         try {
           const v = element.motionProbes[k](handle, ctx);
-          if (Number.isFinite(v)) sampleProbe(k, v);
+          if (Number.isFinite(v)) sampleProbe(k, v, time.value);
         } catch {
           /* probe failures must not break the loop */
         }
