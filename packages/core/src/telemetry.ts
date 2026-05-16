@@ -45,7 +45,9 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
 
   // In-memory pending knob queue. Harness polls and drains.
   const pendingKnobs: Array<{ element: string; key: string; value: unknown }> = [];
-  let manifest: unknown = null;
+  // Manifest is a map keyed by element name so multiple labs can co-exist —
+  // each harness POSTs its own entry on boot.
+  const manifestByElement: Record<string, unknown> = {};
 
   return {
     name: 'triscope-telemetry',
@@ -113,13 +115,16 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
         try {
           if (req.method === 'POST') {
             const body = await readBody(req);
-            manifest = JSON.parse(body);
+            const payload = JSON.parse(body) as { element?: string } & Record<string, unknown>;
+            if (payload?.element && typeof payload.element === 'string') {
+              manifestByElement[payload.element] = payload;
+            }
             res.statusCode = 200;
             return res.end('ok');
           }
           if (req.method === 'GET') {
             res.setHeader('content-type', 'application/json');
-            return res.end(JSON.stringify(manifest ?? null));
+            return res.end(JSON.stringify({ elements: manifestByElement }));
           }
         } catch (err) {
           res.statusCode = 400;

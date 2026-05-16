@@ -58,11 +58,55 @@ function applyPath(data, path) {
   return cur;
 }
 
+async function fetchManifest() {
+  try {
+    const r = await fetch(`${DEV_URL}/__manifest`);
+    if (!r.ok) return null;
+    const m = await r.json();
+    // Shape: { elements: { [name]: { element, labUrl, cameras, knobs } } }
+    return m && typeof m === 'object' ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProjectLabMap(cwd) {
+  try {
+    const p = join(cwd, 'package.json');
+    if (!existsSync(p)) return {};
+    const pkg = JSON.parse(readFileSync(p, 'utf8'));
+    const m = pkg?.triscope?.labs;
+    return m && typeof m === 'object' ? m : {};
+  } catch {
+    return {};
+  }
+}
+
+const PROJECT_LABS = readProjectLabMap(process.cwd());
+
+function absolutize(maybePath) {
+  if (!maybePath) return null;
+  if (/^https?:\/\//.test(maybePath)) return maybePath;
+  return `${DEV_URL}${maybePath.startsWith('/') ? '' : '/'}${maybePath}`;
+}
+
+async function resolveLabUrl({ element, labUrl }) {
+  // 1. Explicit arg wins.
+  if (labUrl) return absolutize(labUrl);
+  if (!element) return DEV_URL;
+  // 2. Live manifest from a running lab.
+  const manifest = await fetchManifest();
+  const entry = manifest?.elements?.[element];
+  if (entry?.labUrl) return absolutize(entry.labUrl);
+  // 3. Per-project escape hatch in package.json#triscope.labs.
+  if (PROJECT_LABS[element]) return absolutize(PROJECT_LABS[element]);
+  // 4. Convention fallback.
+  return `${DEV_URL}/labs/${element}.html`;
+}
+
 async function listElements() {
-  const r = await fetch(`${DEV_URL}/__manifest`);
-  if (!r.ok) throw new Error(`__manifest returned ${r.status}`);
-  const m = await r.json();
-  if (m == null) {
+  const m = await fetchManifest();
+  if (!m || !m.elements || Object.keys(m.elements).length === 0) {
     return { manifest: null, note: 'Dev server is up but no manifest has been posted yet. Load a lab page first.' };
   }
   return { manifest: m };
@@ -89,7 +133,7 @@ async function setKnob(element, key, value) {
 async function captureViews({ element, labUrl }) {
   // Drive a fresh Chromium against the lab URL, evaluate
   // window.__TRISCOPE__.captureViews(), write PNGs per camera.
-  const target = labUrl ?? (element ? `${DEV_URL}/labs/${element}.html` : DEV_URL);
+  const target = await resolveLabUrl({ element, labUrl });
   const port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230);
   const chromeBin = process.env.CHROME_BIN ?? 'chromium';
   const outDir = join(tmpdir(), `${PROJECT}-capture-${element ?? 'scene'}`);

@@ -127,15 +127,50 @@ function analyzePng(path) {
   };
 }
 
+async function resolveSmokeLabUrl(baseUrl, element, cwd) {
+  // Live manifest first.
+  try {
+    const r = await fetch(`${baseUrl}/__manifest`);
+    if (r.ok) {
+      const m = await r.json();
+      const entry = m?.elements?.[element];
+      if (entry?.labUrl) {
+        return /^https?:\/\//.test(entry.labUrl)
+          ? entry.labUrl
+          : `${baseUrl}${entry.labUrl.startsWith('/') ? '' : '/'}${entry.labUrl}`;
+      }
+    }
+  } catch {}
+  // Then package.json#triscope.labs.
+  try {
+    const p = join(cwd, 'package.json');
+    if (existsSync(p)) {
+      const pkg = JSON.parse(readFileSync(p, 'utf8'));
+      const m = pkg?.triscope?.labs;
+      if (m && typeof m === 'object' && m[element]) {
+        const v = m[element];
+        return /^https?:\/\//.test(v) ? v : `${baseUrl}${v.startsWith('/') ? '' : '/'}${v}`;
+      }
+    }
+  } catch {}
+  // Convention fallback.
+  return `${baseUrl}/labs/${element}.html`;
+}
+
 export async function runSmoke({ element, url, screenshot } = {}) {
   const cwd = process.cwd();
   const project = readProjectName(cwd);
-  const baseUrl = url ?? 'http://localhost:5173/';
-  const targetUrl = url
-    ? url
-    : element
-      ? `${baseUrl.replace(/\/$/, '')}/labs/${element}.html`
-      : baseUrl;
+  const baseUrl = (url ?? 'http://localhost:5173/').replace(/\/$/, '');
+  // URL resolution mirrors @triscope/mcp's resolveLabUrl (kept in sync):
+  // 1. explicit --url wins, 2. manifest, 3. package.json#triscope.labs, 4. /labs/<name>.html.
+  let targetUrl;
+  if (url) {
+    targetUrl = url;
+  } else if (element) {
+    targetUrl = await resolveSmokeLabUrl(baseUrl, element, cwd);
+  } else {
+    targetUrl = baseUrl;
+  }
   const SCREENSHOT = screenshot ?? join(tmpdir(), `${project}-smoke-${element ?? 'default'}.png`);
   const DEBUG_PORT = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230);
   const CHROME = process.env.CHROME_BIN ?? 'chromium';
