@@ -135,6 +135,57 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   let lastKnobPollT = 0;
   let running = true;
 
+  // Motion-probe ring buffers (one per declared probe key). 120 samples ≈ 2 s
+  // at 60 fps; we expose summary stats + the last 32 samples in telemetry.
+  const probeKeys = Object.keys(element.motionProbes ?? {});
+  const PROBE_CAP = 120;
+  const probeBuffers: Record<string, Float32Array> = {};
+  const probeWriteIdx: Record<string, number> = {};
+  const probeCount: Record<string, number> = {};
+  for (const k of probeKeys) {
+    probeBuffers[k] = new Float32Array(PROBE_CAP);
+    probeWriteIdx[k] = 0;
+    probeCount[k] = 0;
+  }
+  function sampleProbe(key: string, value: number): void {
+    const buf = probeBuffers[key];
+    buf[probeWriteIdx[key]] = value;
+    probeWriteIdx[key] = (probeWriteIdx[key] + 1) % PROBE_CAP;
+    if (probeCount[key] < PROBE_CAP) probeCount[key] += 1;
+  }
+  function probeStats(key: string): {
+    latest: number; mean: number; min: number; max: number; peakToPeak: number; samples: number[];
+  } | null {
+    const n = probeCount[key];
+    if (n === 0) return null;
+    const buf = probeBuffers[key];
+    const writeIdx = probeWriteIdx[key];
+    // Walk in temporal order: oldest is at writeIdx when full, else 0.
+    const ordered = new Array<number>(n);
+    if (n < PROBE_CAP) {
+      for (let i = 0; i < n; i++) ordered[i] = buf[i];
+    } else {
+      for (let i = 0; i < PROBE_CAP; i++) ordered[i] = buf[(writeIdx + i) % PROBE_CAP];
+    }
+    let min = ordered[0], max = ordered[0], sum = 0;
+    for (let i = 0; i < ordered.length; i++) {
+      const v = ordered[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+      sum += v;
+    }
+    const mean = sum / ordered.length;
+    const tail = ordered.slice(Math.max(0, ordered.length - 32));
+    return {
+      latest: ordered[ordered.length - 1],
+      mean: +mean.toFixed(4),
+      min: +min.toFixed(4),
+      max: +max.toFixed(4),
+      peakToPeak: +(max - min).toFixed(4),
+      samples: tail,
+    };
+  }
+
   function resize(): void {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
@@ -203,6 +254,18 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       if (hud) hud.textContent = `${fps.toFixed(0)} fps · WebGPU · ${element.name}`;
     }
 
+    // Sample motion probes before render so they see the just-advanced time.
+    if (probeKeys.length > 0 && element.motionProbes) {
+      for (const k of probeKeys) {
+        try {
+          const v = element.motionProbes[k](handle, ctx);
+          if (Number.isFinite(v)) sampleProbe(k, v);
+        } catch {
+          /* probe failures must not break the loop */
+        }
+      }
+    }
+
     renderAll();
 
     if (now - lastTelemetryT > telemetryIntervalMs) {
@@ -219,6 +282,13 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
 
   function buildState(): Record<string, unknown> {
     const elemTelemetry = element.telemetry ? safe(() => element.telemetry!(handle, ctx)) : {};
+    let motion: Record<string, ReturnType<typeof probeStats>> | undefined;
+    if (probeKeys.length > 0) {
+      motion = {};
+      for (const k of probeKeys) {
+        motion[k] = probeStats(k);
+      }
+    }
     return {
       project: element.name,
       perf: { fps, dpr: renderer.getPixelRatio() },
@@ -235,7 +305,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
         ]),
       ),
       elements: {
-        [element.name]: elemTelemetry,
+        [element.name]: motion ? { ...elemTelemetry, motion } : elemTelemetry,
       },
     };
   }

@@ -67,6 +67,15 @@ export interface Element {
   onKnob?: (handle: MountHandle, key: string, value: number | string | boolean) => void;
   /** Per-frame state to publish via the telemetry sink. Return JSON-serializable values. */
   telemetry?: (handle: MountHandle, ctx: MountContext) => Record<string, unknown>;
+  /**
+   * Named per-frame numeric probes for animated state. The harness samples each
+   * every frame, keeps a ring buffer (~2 s at 60 fps), and exposes summary stats
+   * under `telemetry.elements.<name>.motion.<probeKey>`:
+   *   { latest, mean, min, max, peakToPeak, samples: lastN }
+   * Use for amplitude (vertex displacement), oscillation rate, particle counts —
+   * anything dynamic the Element wants to quantify.
+   */
+  motionProbes?: Record<string, (handle: MountHandle, ctx: MountContext) => number>;
 }
 
 /** Default value extracted from a knob spec. */
