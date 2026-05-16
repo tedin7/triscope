@@ -1,0 +1,16 @@
+{
+  "name": "create-triscope",
+  "version": "0.0.0",
+  "description": "Scaffold a new Triscope project: Vite + Three.js WebGPU + lab harness + .claude/skills/.",
+  "type": "module",
+  "bin": {
+    "create-triscope": "./bin/create.mjs"
+  },
+  "files": ["bin", "template"],
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "test": "echo \"create-triscope: test TODO\""
+  },
+  "keywords": ["triscope", "scaffold", "create", "three.js", "webgpu"]
+}

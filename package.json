@@ -1,0 +1,28 @@
+{
+  "name": "triscope-monorepo",
+  "private": true,
+  "type": "module",
+  "description": "Triscope — a Three.js+WebGPU element-iteration framework for AI-driven 3D scene development.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tedin7/triscope.git"
+  },
+  "homepage": "https://github.com/tedin7/triscope#readme",
+  "bugs": {
+    "url": "https://github.com/tedin7/triscope/issues"
+  }
+}

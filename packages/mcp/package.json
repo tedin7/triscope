@@ -1,0 +1,23 @@
+{
+  "name": "@triscope/mcp",
+  "version": "0.0.0",
+  "description": "MCP server for Triscope: live read_telemetry, set_knob, list_elements, capture_views, run_smoke. Lets Claude Code drive a running triscope dev server.",
+  "type": "module",
+  "bin": {
+    "triscope-mcp": "./bin/triscope-mcp.mjs"
+  },
+  "files": ["bin", "src"],
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "pngjs": "^7.0.0",
+    "zod": "^3.23.0"
+  },
+  "scripts": {
+    "build": "echo \"mcp: pure ESM JS, no build\" && exit 0",
+    "typecheck": "echo \"mcp: pure ESM JS, no typecheck\" && exit 0",
+    "test": "echo \"mcp: tests TODO\" && exit 0"
+  },
+  "keywords": ["triscope", "mcp", "model-context-protocol", "claude-code", "three.js"]
+}

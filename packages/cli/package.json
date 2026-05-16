@@ -1,0 +1,21 @@
+{
+  "name": "@triscope/cli",
+  "version": "0.0.0",
+  "description": "Triscope CLI: dev, state, list, smoke. Headed-Chromium WebGPU smoke harness for AI iteration.",
+  "type": "module",
+  "bin": {
+    "triscope": "./bin/triscope.mjs"
+  },
+  "files": ["bin", "src"],
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  },
+  "scripts": {
+    "build": "echo \"cli: no build\" && exit 0",
+    "typecheck": "echo \"cli: pure ESM JS, no typecheck\" && exit 0",
+    "test": "echo \"cli: tests TODO\" && exit 0"
+  },
+  "keywords": ["triscope", "cli", "three.js", "webgpu", "claude-code"]
+}

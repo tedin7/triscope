@@ -1,0 +1,11 @@
+{
+  "name": "@triscope/example-ocean-galleon",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Reference scene: sea, sky, seafloor, ship composed via Triscope. Ported from the water3d prototype.",
+  "type": "module",
+  "scripts": {
+    "build": "echo \"ocean-galleon: build TODO\"",
+    "dev": "echo \"ocean-galleon: dev TODO\""
+  }
+}
