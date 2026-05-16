@@ -5,6 +5,7 @@ import { runState } from '../src/state.mjs';
 import { runList } from '../src/list.mjs';
 import { runSmoke } from '../src/smoke.mjs';
 import { runMcp } from '../src/mcp.mjs';
+import { runAutoCapture } from '../src/auto-capture.mjs';
 
 const [, , subcommand, ...rest] = process.argv;
 
@@ -27,6 +28,8 @@ COMMANDS
                             (user scope by default; --project writes .mcp.json
                             in the cwd).
   mcp uninstall             Remove the triscope MCP registration.
+  auto-capture [--file <p>] Print one-line motion summary from telemetry.
+                            Designed to wire as a Claude Code PostToolUse hook.
 
 OPTIONS
   --url <url>               Override the dev server URL (default http://localhost:5173).
@@ -50,6 +53,7 @@ function parseFlags(argv) {
     if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--project') flags.project = true;
     else if (a === '--url') flags.url = argv[++i];
+    else if (a === '--file') flags.file = argv[++i];
     else if (a === '--port') flags.port = argv[++i];
     else if (a === '--screenshot') flags.screenshot = argv[++i];
     else if (a.startsWith('--')) flags[a.slice(2)] = argv[++i];
@@ -88,6 +92,9 @@ async function main() {
           scope: flags.project ? 'project' : 'user',
           url: flags.url,
         });
+        break;
+      case 'auto-capture':
+        await runAutoCapture({ file: flags.file });
         break;
       default:
         console.error(`Unknown command: ${subcommand}\n`);
