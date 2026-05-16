@@ -4,7 +4,8 @@
   "description": "MCP server for Triscope: live read_telemetry, set_knob, list_elements, capture_views, run_smoke. Lets Claude Code drive a running triscope dev server.",
   "type": "module",
   "bin": {
-    "triscope-mcp": "./bin/triscope-mcp.mjs"
+    "triscope-mcp": "./bin/triscope-mcp.mjs",
+    "triscope-mcp-supervised": "./bin/triscope-mcp-supervised.mjs"
   },
   "files": ["bin", "src"],
   "license": "MIT",

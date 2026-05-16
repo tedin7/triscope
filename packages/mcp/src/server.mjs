@@ -60,6 +60,24 @@ const DEV_URL = (process.env.TRISCOPE_URL ?? 'http://localhost:5173').replace(/\
 const PROJECT = readProjectName(process.cwd());
 const STATE_PATH = join(tmpdir(), `${PROJECT}-state.json`);
 
+// ---- Resilience: ring buffer of recent errors + process-level handlers --
+// A single rogue async exception used to crash the entire MCP server (the
+// process died, Claude Code didn't auto-restart it, and subsequent calls
+// timed out with cryptic "Connection closed"). Now we log and continue so
+// individual tool failures stay isolated from the server lifecycle.
+const SERVER_START_TIME = Date.now();
+const RECENT_ERRORS_CAP = 16;
+const recentErrors = [];
+function recordError(source, err) {
+  const msg = `[${new Date().toISOString()}] ${source}: ${err?.stack ?? err?.message ?? String(err)}`;
+  // eslint-disable-next-line no-console
+  console.error('[triscope-mcp]', msg);
+  recentErrors.push(msg);
+  if (recentErrors.length > RECENT_ERRORS_CAP) recentErrors.shift();
+}
+process.on('uncaughtException', (err) => recordError('uncaughtException', err));
+process.on('unhandledRejection', (err) => recordError('unhandledRejection', err));
+
 function applyPath(data, path) {
   if (!path) return data;
   const segs = path.replace(/^\./, '').split('.').filter(Boolean);
@@ -436,6 +454,12 @@ const tools = [
     },
   },
   {
+    name: 'health',
+    description:
+      'Server health snapshot. Returns uptime, dev-server reachability, browser-pool state, pid, recent errors (last 16). Call this when other tools misbehave: a "Connection closed" error from a capture tool followed by a healthy health() call means the MCP server is alive but the browser pool needs to recover; a failed health() means the server itself is sick.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'run_smoke',
     description:
       'Run the headed-Chromium smoke harness against a lab page. Returns exit code, stdout, stderr. Use as a CI gate after a batch of knob changes.',
@@ -650,6 +674,32 @@ export async function startServer() {
             if (data) content.push({ type: 'image', data, mimeType: 'image/png' });
           }
           return { content };
+        }
+        case 'health': {
+          let devServerOk = false;
+          let manifestElements = [];
+          try {
+            const r = await fetch(`${DEV_URL}/__manifest`, { signal: AbortSignal.timeout(2000) });
+            if (r.ok) {
+              const m = await r.json();
+              devServerOk = true;
+              manifestElements = Object.keys(m?.elements ?? {});
+            }
+          } catch {}
+          const mem = process.memoryUsage();
+          return jsonResult({
+            uptimeSec: Math.round((Date.now() - SERVER_START_TIME) / 1000),
+            pid: process.pid,
+            nodeVersion: process.version,
+            project: PROJECT,
+            devServer: { url: DEV_URL, reachable: devServerOk, manifestElements },
+            memoryMB: {
+              rss: +(mem.rss / 1048576).toFixed(1),
+              heapUsed: +(mem.heapUsed / 1048576).toFixed(1),
+              external: +(mem.external / 1048576).toFixed(1),
+            },
+            recentErrors,
+          });
         }
         case 'run_smoke':
           return jsonResult(await runSmoke({ element: args.element }));
