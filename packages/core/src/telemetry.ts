@@ -168,6 +168,18 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
         return next();
       });
     },
+    handleHotUpdate({ file, server }) {
+      // TSL materials (and any code that ends up baked into the renderer
+      // node graph) cannot be remounted via vite HMR because the THREE
+      // Material instance is already in the scene. Force full-reload so
+      // edits to shader/element/mesh files reach the renderer. All other
+      // files (plain ts/css/etc.) continue to HMR normally.
+      if (forceReloadOn && forceReloadOn.test(file)) {
+        server.ws.send({ type: 'full-reload' });
+        return [];
+      }
+      return undefined;
+    },
   };
 }
 
