@@ -53,9 +53,31 @@ the framework handles the rest.
 - `triscope list`               — registered elements + cameras + knobs
 - `triscope smoke [<element>]`  — headed Chromium smoke test
 - MCP `read_telemetry`          — same data, accessible to Claude
-- MCP `set_knob`                — live update without reload
-- MCP `capture_views`           — render every named camera to PNGs
+- MCP `set_knob`                — live update without reload (single or batched via {updates:[...]})
+- MCP `capture_views`           — render every named camera; inline PNGs in the tool response
+- MCP `set_reference` / `diff_reference` — store a reference photo, get a side-by-side + meanAbsDiff
+- MCP `capture_motion`          — multi-frame filmstrips + motionMagnitude per camera (use for animated elements)
 - MCP `run_smoke`               — `triscope smoke` as a tool
+
+## When the element has motion
+
+A single `capture_views` frame **cannot reveal whether motion is happening** —
+sails could be at amplitude 0 just because you captured at the wrong phase, or
+because windPressure isn't actually wired to deformation. Use these instead:
+
+- **`capture_motion({ element, camera?, frames=6, dt=0.25, mode='time' })`** —
+  returns one filmstrip image per camera (6 frames tiled left-to-right) plus a
+  numeric `motionMagnitude[camera]` (0-255). Read the rule: <1 = static, >5 =
+  visible motion, >20 = vigorous. If you expect motion (windPressure > 0) and
+  magnitude is <1, the wiring is broken — not a tuning problem.
+- **`read_telemetry .elements.<name>.motion`** — if the Element declared
+  `motionProbes`, each probe exposes `{ latest, mean, min, max, peakToPeak,
+  samples: lastN }`. peakToPeak ≈ 0 with non-zero input means the probe isn't
+  changing — the animation isn't propagating to the state you're measuring.
+- **Mode choice.** `mode: 'time'` is deterministic (steps `time.value`
+  forward, ~instant) — use it for shader-driven motion (TSL uniforms, vertex
+  displacement keyed to `ctx.time`). `mode: 'real'` waits dt seconds between
+  frames — use it for CPU-integrated state (springs, particles).
 
 ## See also
 
