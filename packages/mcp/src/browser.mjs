@@ -111,10 +111,37 @@ export function createBrowserPool({
     throw new Error('window.__TRISCOPE__ did not become available within 10s');
   }
 
+  async function isAlive() {
+    if (!chrome || chrome.killed || !ws || ws.readyState !== 1) return false;
+    // Even with WS open, the page may be hung. Probe with a fast no-op
+    // CDP call and short timeout so a stalled Chromium is detected here
+    // rather than at the much heavier Page.navigate that follows.
+    try {
+      await Promise.race([
+        call('Runtime.evaluate', { expression: '1', returnByValue: true }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('alive probe timeout')), 1500)),
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function disposeQuiet() {
+    try { ws?.close(); } catch {}
+    try { if (chrome && !chrome.killed) chrome.kill(); } catch {}
+    ws = null; chrome = null; call = null; currentUrl = null;
+  }
+
   return {
     /** Lazy-spawn Chromium (first call) or reuse it (subsequent). Always
-     *  guarantees the page is sitting on `url` with the harness mounted. */
+     *  guarantees the page is sitting on `url` with the harness mounted.
+     *  Self-heals: if the previous Chromium died externally (manual kill,
+     *  crash) the next call disposes the stale state and respawns. */
     async getPage(url) {
+      if (chrome && !(await isAlive())) {
+        disposeQuiet();
+      }
       if (!chrome) {
         await ensureBrowser(url);
         await waitForHarness();
@@ -124,13 +151,6 @@ export function createBrowserPool({
       return { call };
     },
     /** Synchronous teardown. Safe to call multiple times. */
-    dispose() {
-      try { ws?.close(); } catch {}
-      try { if (chrome && !chrome.killed) chrome.kill(); } catch {}
-      ws = null;
-      chrome = null;
-      call = null;
-      currentUrl = null;
-    },
+    dispose() { disposeQuiet(); },
   };
 }
