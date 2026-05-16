@@ -79,6 +79,46 @@ because windPressure isn't actually wired to deformation. Use these instead:
   displacement keyed to `ctx.time`). `mode: 'real'` waits dt seconds between
   frames — use it for CPU-integrated state (springs, particles).
 
+## Editing shaders / TSL materials: full-reload, not HMR
+
+The triscope vite plugin forces a **full page reload** instead of HMR when
+files matching `(\.tsl|Element|Mesh|Material|Shader)\.(ts|tsx|js|mjs)$`
+change. Reason: TSL materials end up baked into the renderer's node graph
+when the scene mounts, so re-running the module after an edit has no
+effect on the running THREE.Material — the new code never reaches the
+renderer. Full-reload is the only reliable way to see shader edits.
+
+Cost: ~1-2 s vs. ~50 ms HMR. Acceptable trade — the failure mode (edits
+silently invisible) costs much more. Plain `.ts` files outside the
+pattern still HMR normally.
+
+To override the pattern or disable: pass `forceReloadOn` to the plugin in
+your `vite.config.ts`:
+
+```ts
+triscopeTelemetryPlugin({
+  forceReloadOn: /custom-pattern/i,   // or pass null to disable entirely
+})
+```
+
+## Cold-start manifest: declare your labs in package.json
+
+If your lab pages don't follow the `/labs/<element>.html` convention,
+declare them in `package.json` so `mcp__triscope__capture_views` works
+on the first call without `labUrl`:
+
+```json
+"triscope": {
+  "labs": {
+    "ship": "/triscope-ship.html",
+    "ocean": "/triscope-ocean.html"
+  }
+}
+```
+
+The vite plugin reads this at boot and seeds `/__manifest` so the MCP
+URL resolver returns the right URL immediately.
+
 ## Reactive loop (optional): the PostToolUse hook
 
 `.claude/hooks.example.json` is a ready-to-paste hook config that wires
