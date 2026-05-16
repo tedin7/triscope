@@ -44,6 +44,13 @@ export interface LabOptions {
   knobPollMs?: number;
   /** Optional clear color for the scene before each frame. Default `#0a1a20`. */
   clearColor?: number;
+  /**
+   * Fixed [width, height] in CSS pixels to which the canvas is resized for
+   * every captureViews / captureMotionFrames call, then restored. Use this
+   * when you need reproducible framing across page reloads (otherwise the
+   * canvas tracks clientWidth/clientHeight which can drift). Off by default.
+   */
+  captureSize?: [number, number];
 }
 
 export interface LabHandle {
@@ -377,13 +384,19 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
 
   async function captureMotionFrames(
     cameraName: string,
-    opts: { frames?: number; dt?: number; mode?: 'time' | 'real' } = {},
+    motionOpts: { frames?: number; dt?: number; mode?: 'time' | 'real' } = {},
   ): Promise<string[]> {
-    const { frames: N = 6, dt: step = 0.25, mode = 'time' } = opts;
+    const { frames: N = 6, dt: step = 0.25, mode = 'time' } = motionOpts;
     const cam = cameras[cameraName];
     if (!cam) throw new Error(`unknown camera: ${cameraName}`);
-    const w = renderer.domElement.width / renderer.getPixelRatio();
-    const h = renderer.domElement.height / renderer.getPixelRatio();
+    // If captureSize is set, snap the canvas to that fixed size for the
+    // capture (and restore at the end) so framing is deterministic across
+    // page reloads / window resizes.
+    const liveW = renderer.domElement.width / renderer.getPixelRatio();
+    const liveH = renderer.domElement.height / renderer.getPixelRatio();
+    const w = opts.captureSize?.[0] ?? liveW;
+    const h = opts.captureSize?.[1] ?? liveH;
+    if (opts.captureSize) renderer.setSize(w, h, false);
     renderer.setScissorTest(false);
     cam.aspect = w / Math.max(h, 1);
     cam.updateProjectionMatrix();
@@ -452,8 +465,11 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   async function captureViews(): Promise<Record<string, string>> {
     // Capture each camera as a separate full-canvas render to a base64 PNG.
     const out: Record<string, string> = {};
-    const w = renderer.domElement.width / renderer.getPixelRatio();
-    const h = renderer.domElement.height / renderer.getPixelRatio();
+    const liveW = renderer.domElement.width / renderer.getPixelRatio();
+    const liveH = renderer.domElement.height / renderer.getPixelRatio();
+    const w = opts.captureSize?.[0] ?? liveW;
+    const h = opts.captureSize?.[1] ?? liveH;
+    if (opts.captureSize) renderer.setSize(w, h, false);
     for (const name of cameraOrder) {
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, w, h);
@@ -464,7 +480,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       // The canvas now holds this camera's view. Read as data URL.
       out[name] = renderer.domElement.toDataURL('image/png');
     }
-    // Restore aspect ratios.
+    // Restore live canvas dimensions + per-camera aspect ratios.
     resize();
     return out;
   }
