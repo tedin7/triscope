@@ -20,6 +20,17 @@ interface TriscopeGlobal {
   sampleTelemetry: () => Record<string, unknown>;
   /** Capture one frame per named camera; returns base64 PNGs keyed by camera. */
   captureViews: () => Promise<Record<string, string>>;
+  /**
+   * Capture N frames of a single camera spaced by dt seconds. In `mode: 'time'`
+   * (default), the RAF loop is paused and `time.value` is stepped forward
+   * deterministically — works for shader-driven motion. In `mode: 'real'`, the
+   * RAF keeps running and frames are sampled at wall-clock intervals — needed
+   * for CPU-integrated state (springs, particles).
+   */
+  captureMotionFrames: (
+    camera: string,
+    opts?: { frames?: number; dt?: number; mode?: 'time' | 'real' },
+  ) => Promise<string[]>;
 }
 
 export interface LabOptions {
@@ -326,6 +337,60 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     }
   }
 
+  async function captureMotionFrames(
+    cameraName: string,
+    opts: { frames?: number; dt?: number; mode?: 'time' | 'real' } = {},
+  ): Promise<string[]> {
+    const { frames: N = 6, dt: step = 0.25, mode = 'time' } = opts;
+    const cam = cameras[cameraName];
+    if (!cam) throw new Error(`unknown camera: ${cameraName}`);
+    const w = renderer.domElement.width / renderer.getPixelRatio();
+    const h = renderer.domElement.height / renderer.getPixelRatio();
+    renderer.setScissorTest(false);
+    cam.aspect = w / Math.max(h, 1);
+    cam.updateProjectionMatrix();
+
+    const out: string[] = [];
+    if (mode === 'time') {
+      // Deterministic: pause the RAF, step time.value forward, render.
+      const wasRunning = running;
+      running = false;
+      const baseT = time.value;
+      const baseDt = dt.value;
+      try {
+        for (let i = 0; i < N; i++) {
+          time.value = baseT + i * step;
+          dt.value = step;
+          renderer.setViewport(0, 0, w, h);
+          renderer.clear();
+          renderer.render(scene, cam);
+          out.push(renderer.domElement.toDataURL('image/png'));
+        }
+      } finally {
+        time.value = baseT;
+        dt.value = baseDt;
+        running = wasRunning;
+        if (running) {
+          lastT = performance.now();
+          requestAnimationFrame(tick);
+        }
+      }
+    } else {
+      // Real-time: keep RAF running, sample at wall-clock intervals.
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < N; i++) {
+        renderer.setViewport(0, 0, w, h);
+        renderer.setScissorTest(false);
+        renderer.clear();
+        renderer.render(scene, cam);
+        out.push(renderer.domElement.toDataURL('image/png'));
+        if (i < N - 1) await sleep(step * 1000);
+      }
+    }
+    resize();
+    return out;
+  }
+
   async function captureViews(): Promise<Record<string, string>> {
     // Capture each camera as a separate full-canvas render to a base64 PNG.
     const out: Record<string, string> = {};
@@ -358,6 +423,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     setKnob: (k, v) => applyKnob(k, v, true),
     sampleTelemetry: buildState,
     captureViews,
+    captureMotionFrames,
   };
 
   requestAnimationFrame(tick);
