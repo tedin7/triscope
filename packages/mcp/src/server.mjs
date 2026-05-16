@@ -130,7 +130,7 @@ async function setKnob(element, key, value) {
   return { ok: true, element, key, value };
 }
 
-async function captureViews({ element, labUrl }) {
+async function captureViews({ element, labUrl, inline = true }) {
   // Drive a fresh Chromium against the lab URL, evaluate
   // window.__TRISCOPE__.captureViews(), write PNGs per camera.
   const target = await resolveLabUrl({ element, labUrl });
@@ -213,12 +213,14 @@ async function captureViews({ element, labUrl }) {
       throw new Error('captureViews returned an empty result');
     }
     const written = {};
+    const base64ByCam = {};
     for (const [cam, dataUrl] of Object.entries(views)) {
       if (typeof dataUrl !== 'string') continue;
       const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
       const path = join(outDir, `${cam}.png`);
       writeFileSync(path, Buffer.from(b64, 'base64'));
       written[cam] = path;
+      base64ByCam[cam] = b64;
     }
     const telemetry = await call('Runtime.evaluate', {
       expression: 'JSON.stringify(window.__TRISCOPE__.sampleTelemetry())',
@@ -227,7 +229,15 @@ async function captureViews({ element, labUrl }) {
     const sample = JSON.parse(telemetry.result.result.value);
 
     try { ws.close(); } catch {}
-    return { element: element ?? null, dir: outDir, files: written, telemetry: sample };
+    return {
+      element: element ?? null,
+      dir: outDir,
+      files: written,
+      cameraOrder: Object.keys(written),
+      telemetry: sample,
+      inline,
+      _base64ByCam: base64ByCam,
+    };
   } finally {
     if (!chrome.killed) chrome.kill();
   }
@@ -282,12 +292,13 @@ const tools = [
   {
     name: 'capture_views',
     description:
-      'Spawn a fresh Chromium against a lab page (default /labs/<element>.html, or the scene lab if no element), call window.__TRISCOPE__.captureViews() to render every named camera once, and write the resulting PNGs to /tmp/<project>-capture-<element>/<camera>.png. Returns the file paths plus a telemetry sample taken at capture time. Use this to look at all angles in one call rather than screenshotting interactively.',
+      'Spawn Chromium against a lab page (resolved via Element.labUrl in the manifest, package.json#triscope.labs, or /labs/<element>.html as fallback) and render every named camera. Writes PNGs to /tmp/<project>-capture-<element>/<camera>.png AND returns each image inline as MCP image content blocks (so the model sees them directly without a Read call). Set inline=false to return paths only (smaller payload).',
     inputSchema: {
       type: 'object',
       properties: {
-        element: { type: 'string', description: 'Element to view alone (loads /labs/<element>.html).' },
-        labUrl: { type: 'string', description: 'Override the lab URL entirely.' },
+        element: { type: 'string', description: 'Element name. URL is resolved via manifest/config.' },
+        labUrl: { type: 'string', description: 'Override the lab URL entirely (highest precedence).' },
+        inline: { type: 'boolean', description: 'Return images as inline content blocks. Default true.', default: true },
       },
       additionalProperties: false,
     },
@@ -338,8 +349,23 @@ export async function startServer() {
             .parse(args);
           return jsonResult(await setKnob(parsed.element, parsed.key, parsed.value));
         }
-        case 'capture_views':
-          return jsonResult(await captureViews({ element: args.element, labUrl: args.labUrl }));
+        case 'capture_views': {
+          const res = await captureViews({
+            element: args.element,
+            labUrl: args.labUrl,
+            inline: args.inline ?? true,
+          });
+          const { _base64ByCam, ...summary } = res;
+          const text = JSON.stringify(summary, null, 2);
+          if (!res.inline) return { content: [{ type: 'text', text }] };
+          const content = [{ type: 'text', text }];
+          for (const cam of res.cameraOrder) {
+            const data = _base64ByCam[cam];
+            if (!data) continue;
+            content.push({ type: 'image', data, mimeType: 'image/png' });
+          }
+          return { content };
+        }
         case 'run_smoke':
           return jsonResult(await runSmoke({ element: args.element }));
         default:
