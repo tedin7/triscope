@@ -122,14 +122,19 @@ async function readTelemetry(path) {
   return applyPath(data, path);
 }
 
-async function setKnob(element, key, value) {
+async function setKnob(payload) {
+  // `payload` is either a single {element,key,value} or {updates:[...]}.
+  // The /__knob endpoint accepts arrays natively (telemetry.ts line 94).
+  const body = Array.isArray(payload?.updates)
+    ? JSON.stringify(payload.updates)
+    : JSON.stringify(payload);
   const r = await fetch(`${DEV_URL}/__knob`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ element, key, value }),
+    body,
   });
   if (!r.ok) throw new Error(`__knob returned ${r.status}`);
-  return { ok: true, element, key, value };
+  return { ok: true, count: Array.isArray(payload?.updates) ? payload.updates.length : 1 };
 }
 
 async function captureViews({ element, labUrl, inline = true }) {
@@ -279,15 +284,27 @@ const tools = [
   {
     name: 'set_knob',
     description:
-      'Live-update a single knob on a registered element. Use absolute values (e.g. set_knob("ship","mastTilt",0.1), not "increase by 0.1"). The change takes effect in the running browser within ~100 ms.',
+      'Live-update one or many knobs in a single round trip. Either pass {element,key,value} for a single update OR {updates:[{element,key,value},...]} to batch. Use absolute values, never deltas. Changes take effect in the running browser within ~100 ms.',
     inputSchema: {
       type: 'object',
       properties: {
-        element: { type: 'string', description: 'Element name (from list_elements).' },
-        key: { type: 'string', description: 'Knob key (e.g. "mastTilt").' },
-        value: { description: 'New absolute value. Number, string ("#aabbcc" for color), or boolean.' },
+        element: { type: 'string', description: 'Element name (single-update form).' },
+        key: { type: 'string', description: 'Knob key (single-update form).' },
+        value: { description: 'Absolute value (number, "#aabbcc" color, boolean).' },
+        updates: {
+          type: 'array',
+          description: 'Batch form: array of {element,key,value} entries applied atomically.',
+          items: {
+            type: 'object',
+            properties: {
+              element: { type: 'string' },
+              key: { type: 'string' },
+              value: {},
+            },
+            required: ['element', 'key', 'value'],
+          },
+        },
       },
-      required: ['element', 'key', 'value'],
       additionalProperties: false,
     },
   },
@@ -373,14 +390,14 @@ export async function startServer() {
         case 'read_telemetry':
           return jsonResult(await readTelemetry(args.path));
         case 'set_knob': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              key: z.string(),
-              value: z.union([z.number(), z.string(), z.boolean()]),
-            })
-            .parse(args);
-          return jsonResult(await setKnob(parsed.element, parsed.key, parsed.value));
+          const value = z.union([z.number(), z.string(), z.boolean()]);
+          const update = z.object({ element: z.string(), key: z.string(), value });
+          const schema = z.union([
+            z.object({ updates: z.array(update).min(1) }),
+            update,
+          ]);
+          const parsed = schema.parse(args);
+          return jsonResult(await setKnob(parsed));
         }
         case 'capture_views': {
           const res = await captureViews({
