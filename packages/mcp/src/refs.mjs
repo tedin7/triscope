@@ -101,6 +101,45 @@ function meanAbsDiff(a, b) {
   return +(sum / pixels).toFixed(2);
 }
 
+export function composeFilmstrip(frameBase64s, opts = {}) {
+  // Tile N frames horizontally with a 2-px black separator. Each frame is
+  // resized to match the smallest source height (so payload stays bounded
+  // even if frames are e.g. 1600x900 each). Returns a PNG Buffer.
+  if (!Array.isArray(frameBase64s) || frameBase64s.length === 0) {
+    throw new Error('composeFilmstrip: no frames');
+  }
+  const sep = opts.sep ?? 2;
+  const frames = frameBase64s.map((b) => decodePng(Buffer.from(stripPrefix(b), 'base64')));
+  const h = Math.min(...frames.map((f) => f.height));
+  const resized = frames.map((f) => nearestNeighborResize(f, Math.round((f.width * h) / f.height), h));
+  const totalW = resized.reduce((acc, f, i) => acc + f.width + (i > 0 ? sep : 0), 0);
+  const out = new PNG({ width: totalW, height: h });
+  for (let i = 0; i < out.data.length; i += 4) out.data[i + 3] = 255;
+  let x = 0;
+  for (let f = 0; f < resized.length; f++) {
+    const img = resized[f];
+    for (let y = 0; y < h; y++) {
+      const srcRow = y * img.width * 4;
+      const dstRow = (y * totalW + x) * 4;
+      img.data.copy(out.data, dstRow, srcRow, srcRow + img.width * 4);
+    }
+    x += img.width + sep;
+  }
+  return PNG.sync.write(out);
+}
+
+export function motionMagnitudeFromFrames(frameBase64s) {
+  // Mean over consecutive-frame pairs of meanAbsDiff. 256x256 downscale.
+  // 0 = no motion; >5 = visible; >20 = vigorous.
+  if (!Array.isArray(frameBase64s) || frameBase64s.length < 2) return 0;
+  const decoded = frameBase64s.map((b) => decodePng(Buffer.from(stripPrefix(b), 'base64')));
+  let total = 0;
+  for (let i = 1; i < decoded.length; i++) {
+    total += meanAbsDiff(decoded[i - 1], decoded[i]);
+  }
+  return +(total / (decoded.length - 1)).toFixed(2);
+}
+
 export function diffReference({ cwd, element, camera, currentBase64 }) {
   const refPath = refsPath(cwd, element, camera);
   if (!existsSync(refPath)) {
