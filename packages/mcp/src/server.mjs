@@ -29,6 +29,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
+import { setReference, diffReference, refsPath } from './refs.mjs';
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function readProjectName(cwd) {
@@ -304,6 +306,37 @@ const tools = [
     },
   },
   {
+    name: 'set_reference',
+    description:
+      'Save a reference image for an (element, camera) pair under <project>/refs/<element>/<camera>.png. Accepts EITHER a `path` to a file on disk (e.g. a chat-attachment path) OR `base64` inline PNG data. Use this when the user pastes a reference image they want the AI to converge toward.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string', description: 'Element name.' },
+        camera: { type: 'string', description: 'Camera name (must match Element.cameras key).' },
+        path: { type: 'string', description: 'Filesystem path to a PNG/JPEG (one of path or base64 required).' },
+        base64: { type: 'string', description: 'Base64-encoded PNG (with or without data: prefix).' },
+      },
+      required: ['element', 'camera'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'diff_reference',
+    description:
+      'Capture the current view at (element, camera), compose it side-by-side with the stored reference (left=ref, right=current), and return BOTH a numeric meanAbsDiff (0-255, 0=identical) AND the composite as an inline image content block. Requires a prior set_reference for the same (element, camera).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string', description: 'Element name.' },
+        camera: { type: 'string', description: 'Camera name.' },
+        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
+      },
+      required: ['element', 'camera'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'run_smoke',
     description:
       'Run the headed-Chromium smoke harness against a lab page. Returns exit code, stdout, stderr. Use as a CI gate after a batch of knob changes.',
@@ -365,6 +398,65 @@ export async function startServer() {
             content.push({ type: 'image', data, mimeType: 'image/png' });
           }
           return { content };
+        }
+        case 'set_reference': {
+          const parsed = z
+            .object({
+              element: z.string(),
+              camera: z.string(),
+              path: z.string().optional(),
+              base64: z.string().optional(),
+            })
+            .parse(args);
+          const result = setReference({ cwd: process.cwd(), ...parsed });
+          return jsonResult(result);
+        }
+        case 'diff_reference': {
+          const parsed = z
+            .object({
+              element: z.string(),
+              camera: z.string(),
+              labUrl: z.string().optional(),
+            })
+            .parse(args);
+          const refExists = existsSync(refsPath(process.cwd(), parsed.element, parsed.camera));
+          if (!refExists) {
+            return {
+              isError: true,
+              content: [{
+                type: 'text',
+                text: `no reference at ${refsPath(process.cwd(), parsed.element, parsed.camera)}. Call set_reference first.`,
+              }],
+            };
+          }
+          const cap = await captureViews({ element: parsed.element, labUrl: parsed.labUrl, inline: true });
+          const currentBase64 = cap._base64ByCam?.[parsed.camera];
+          if (!currentBase64) {
+            return {
+              isError: true,
+              content: [{
+                type: 'text',
+                text: `camera "${parsed.camera}" not found on element "${parsed.element}". Available: ${cap.cameraOrder.join(', ')}`,
+              }],
+            };
+          }
+          const diff = diffReference({
+            cwd: process.cwd(),
+            element: parsed.element,
+            camera: parsed.camera,
+            currentBase64,
+          });
+          return {
+            content: [
+              { type: 'text', text: JSON.stringify({
+                camera: diff.camera,
+                refPath: diff.refPath,
+                meanAbsDiff: diff.meanAbsDiff,
+                hint: '0 = identical, ~30 = visibly close, >80 = clearly different',
+              }, null, 2) },
+              { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
+            ],
+          };
         }
         case 'run_smoke':
           return jsonResult(await runSmoke({ element: args.element }));
