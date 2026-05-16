@@ -30,6 +30,13 @@ import {
 import { z } from 'zod';
 
 import { setReference, diffReference, refsPath } from './refs.mjs';
+import { createBrowserPool } from './browser.mjs';
+
+const browserPool = createBrowserPool();
+const shutdown = () => browserPool.dispose();
+process.on('exit', shutdown);
+process.on('SIGINT', () => { shutdown(); process.exit(130); });
+process.on('SIGTERM', () => { shutdown(); process.exit(143); });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -138,116 +145,49 @@ async function setKnob(payload) {
 }
 
 async function captureViews({ element, labUrl, inline = true }) {
-  // Drive a fresh Chromium against the lab URL, evaluate
-  // window.__TRISCOPE__.captureViews(), write PNGs per camera.
+  // Persistent Chromium: first call cold-starts (~3s), subsequent calls
+  // reuse the same browser/page and just navigate if the URL changed.
   const target = await resolveLabUrl({ element, labUrl });
-  const port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230);
-  const chromeBin = process.env.CHROME_BIN ?? 'chromium';
   const outDir = join(tmpdir(), `${PROJECT}-capture-${element ?? 'scene'}`);
   mkdirSync(outDir, { recursive: true });
 
-  const chrome = spawn(chromeBin, [
-    '--enable-unsafe-webgpu',
-    '--ignore-gpu-blocklist',
-    `--user-data-dir=/tmp/triscope-mcp-profile-${Date.now()}`,
-    `--remote-debugging-port=${port}`,
-    '--window-size=1600,900',
-    target,
-  ]);
-
-  try {
-    let pages;
-    const start = Date.now();
-    while (Date.now() - start < 10000) {
-      try {
-        pages = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json());
-        if (Array.isArray(pages) && pages.length > 0) break;
-      } catch {}
-      await wait(250);
-    }
-    if (!pages) throw new Error('DevTools endpoint did not become ready');
-    const page = pages.find((p) => p.url === target || p.url?.startsWith(target)) ?? pages[0];
-
-    const ws = new WebSocket(page.webSocketDebuggerUrl);
-    const pending = new Map();
-    let nextId = 0;
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.id && pending.has(msg.id)) {
-        pending.get(msg.id)(msg);
-        pending.delete(msg.id);
-      }
-    };
-    const call = (method, params = {}) =>
-      new Promise((resolve, reject) => {
-        const id = ++nextId;
-        ws.send(JSON.stringify({ id, method, params }));
-        const t = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`CDP timeout for ${method}`));
-        }, 20000);
-        pending.set(id, (msg) => {
-          clearTimeout(t);
-          if (msg.error) reject(new Error(`${method}: ${msg.error.message}`));
-          else resolve(msg);
-        });
-      });
-
-    await new Promise((res) => {
-      ws.onopen = res;
-    });
-    await call('Runtime.enable');
-    await call('Page.enable');
-    // Wait for the harness to mount.
-    let ready = false;
-    for (let i = 0; i < 40; i++) {
-      const probe = await call('Runtime.evaluate', {
-        expression: '!!window.__TRISCOPE__ && Object.keys(window.__TRISCOPE__.cameras).length',
-        returnByValue: true,
-      });
-      if (probe.result.result.value) { ready = true; break; }
-      await wait(250);
-    }
-    if (!ready) throw new Error('window.__TRISCOPE__ did not become available within 10s');
-
-    const result = await call('Runtime.evaluate', {
-      expression: 'window.__TRISCOPE__.captureViews()',
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    const views = result.result.result.value;
-    if (!views || typeof views !== 'object') {
-      throw new Error('captureViews returned an empty result');
-    }
-    const written = {};
-    const base64ByCam = {};
-    for (const [cam, dataUrl] of Object.entries(views)) {
-      if (typeof dataUrl !== 'string') continue;
-      const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-      const path = join(outDir, `${cam}.png`);
-      writeFileSync(path, Buffer.from(b64, 'base64'));
-      written[cam] = path;
-      base64ByCam[cam] = b64;
-    }
-    const telemetry = await call('Runtime.evaluate', {
-      expression: 'JSON.stringify(window.__TRISCOPE__.sampleTelemetry())',
-      returnByValue: true,
-    });
-    const sample = JSON.parse(telemetry.result.result.value);
-
-    try { ws.close(); } catch {}
-    return {
-      element: element ?? null,
-      dir: outDir,
-      files: written,
-      cameraOrder: Object.keys(written),
-      telemetry: sample,
-      inline,
-      _base64ByCam: base64ByCam,
-    };
-  } finally {
-    if (!chrome.killed) chrome.kill();
+  const t0 = Date.now();
+  const { call } = await browserPool.getPage(target);
+  const result = await call('Runtime.evaluate', {
+    expression: 'window.__TRISCOPE__.captureViews()',
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  const views = result.result.result.value;
+  if (!views || typeof views !== 'object') {
+    throw new Error('captureViews returned an empty result');
   }
+  const written = {};
+  const base64ByCam = {};
+  for (const [cam, dataUrl] of Object.entries(views)) {
+    if (typeof dataUrl !== 'string') continue;
+    const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+    const path = join(outDir, `${cam}.png`);
+    writeFileSync(path, Buffer.from(b64, 'base64'));
+    written[cam] = path;
+    base64ByCam[cam] = b64;
+  }
+  const telemetry = await call('Runtime.evaluate', {
+    expression: 'JSON.stringify(window.__TRISCOPE__.sampleTelemetry())',
+    returnByValue: true,
+  });
+  const sample = JSON.parse(telemetry.result.result.value);
+
+  return {
+    element: element ?? null,
+    dir: outDir,
+    files: written,
+    cameraOrder: Object.keys(written),
+    telemetry: sample,
+    inline,
+    captureMs: Date.now() - t0,
+    _base64ByCam: base64ByCam,
+  };
 }
 
 async function runSmoke({ element }) {
