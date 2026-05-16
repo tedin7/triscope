@@ -379,14 +379,30 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     const out: string[] = [];
     if (mode === 'time') {
       // Deterministic: pause the RAF, step time.value forward, render.
+      // CRITICAL: Three.js TSL's `time` node is `uniform(0).onRenderUpdate(
+      // (frame) => frame.time)` — it overwrites itself from renderer.nodeFrame
+      // on every render. So we must also override nodeFrame.time before each
+      // render or any shader using three/tsl's `time` will appear frozen.
       const wasRunning = running;
       running = false;
       const baseT = time.value;
       const baseDt = dt.value;
+      const rendererAny = renderer as unknown as {
+        nodeFrame?: { time: number; deltaTime: number };
+        _nodes?: { nodeFrame?: { time: number; deltaTime: number } };
+      };
+      const nf = rendererAny.nodeFrame ?? rendererAny._nodes?.nodeFrame ?? null;
+      const baseFrameT = nf?.time ?? 0;
+      const baseFrameDt = nf?.deltaTime ?? 0;
       try {
         for (let i = 0; i < N; i++) {
-          time.value = baseT + i * step;
+          const wantedT = baseT + i * step;
+          time.value = wantedT;
           dt.value = step;
+          if (nf) {
+            nf.time = wantedT;
+            nf.deltaTime = step;
+          }
           renderer.setViewport(0, 0, w, h);
           renderer.clear();
           renderer.render(scene, cam);
@@ -395,6 +411,10 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       } finally {
         time.value = baseT;
         dt.value = baseDt;
+        if (nf) {
+          nf.time = baseFrameT;
+          nf.deltaTime = baseFrameDt;
+        }
         running = wasRunning;
         if (running) {
           lastT = performance.now();
