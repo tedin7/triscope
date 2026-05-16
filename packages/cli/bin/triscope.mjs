@@ -4,6 +4,7 @@ import { runDev } from '../src/dev.mjs';
 import { runState } from '../src/state.mjs';
 import { runList } from '../src/list.mjs';
 import { runSmoke } from '../src/smoke.mjs';
+import { runMcp } from '../src/mcp.mjs';
 
 const [, , subcommand, ...rest] = process.argv;
 
@@ -22,6 +23,10 @@ COMMANDS
   smoke [<element>]         Run the headed-Chromium smoke harness against a
                             lab page. Defaults to the scene lab. Element
                             argument picks /labs/<element>.html.
+  mcp install [--project]   Register the triscope MCP server with Claude Code
+                            (user scope by default; --project writes .mcp.json
+                            in the cwd).
+  mcp uninstall             Remove the triscope MCP registration.
 
 OPTIONS
   --url <url>               Override the dev server URL (default http://localhost:5173).
@@ -43,6 +48,7 @@ function parseFlags(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') flags.help = true;
+    else if (a === '--project') flags.project = true;
     else if (a === '--url') flags.url = argv[++i];
     else if (a === '--port') flags.port = argv[++i];
     else if (a === '--screenshot') flags.screenshot = argv[++i];
@@ -75,6 +81,13 @@ async function main() {
         break;
       case 'smoke':
         await runSmoke({ element: positional[0], url: flags.url, screenshot: flags.screenshot });
+        break;
+      case 'mcp':
+        await runMcp({
+          action: positional[0],
+          scope: flags.project ? 'project' : 'user',
+          url: flags.url,
+        });
         break;
       default:
         console.error(`Unknown command: ${subcommand}\n`);
