@@ -21,6 +21,15 @@ export function refsPath(cwd, element, camera) {
   return join(refsRoot(cwd), element, `${safeCam}.png`);
 }
 
+export function refsMotionPaths(cwd, element, camera) {
+  const safeCam = String(camera).replace(/[^A-Za-z0-9._-]/g, '_');
+  const base = join(refsRoot(cwd), element);
+  return {
+    filmstrip: join(base, `${safeCam}.motion.png`),
+    meta: join(base, `${safeCam}.motion.json`),
+  };
+}
+
 export function setReference({ cwd, element, camera, path, base64 }) {
   if (!element || !camera) throw new Error('element and camera are required');
   let bytes;
@@ -138,6 +147,60 @@ export function motionMagnitudeFromFrames(frameBase64s) {
     total += meanAbsDiff(decoded[i - 1], decoded[i]);
   }
   return +(total / (decoded.length - 1)).toFixed(2);
+}
+
+export function setReferenceMotion({ cwd, element, camera, frameBase64s, meta }) {
+  if (!Array.isArray(frameBase64s) || frameBase64s.length < 2) {
+    throw new Error('setReferenceMotion: need at least 2 frames');
+  }
+  const filmstrip = composeFilmstrip(frameBase64s);
+  const { filmstrip: fpath, meta: mpath } = refsMotionPaths(cwd, element, camera);
+  mkdirSync(dirname(fpath), { recursive: true });
+  writeFileSync(fpath, filmstrip);
+  writeFileSync(mpath, JSON.stringify({
+    frames: frameBase64s.length,
+    ...meta,
+    savedAt: new Date().toISOString(),
+  }, null, 2));
+  return { filmstripPath: fpath, metaPath: mpath, frames: frameBase64s.length };
+}
+
+export function diffReferenceMotion({ cwd, element, camera, currentFrames }) {
+  const { filmstrip: fpath, meta: mpath } = refsMotionPaths(cwd, element, camera);
+  if (!existsSync(fpath)) {
+    throw new Error(`no motion reference at ${fpath} — call set_reference_motion first`);
+  }
+  if (!Array.isArray(currentFrames) || currentFrames.length === 0) {
+    throw new Error('currentFrames must be a non-empty array of base64 PNGs');
+  }
+  const refFilmstrip = decodePng(readFileSync(fpath));
+  const curFilmstrip = decodePng(composeFilmstrip(currentFrames));
+  // Stack vertically: reference on top, current on bottom, 4-px separator.
+  const h = Math.min(refFilmstrip.height, curFilmstrip.height);
+  const lw = Math.round((refFilmstrip.width * h) / refFilmstrip.height);
+  const rw = Math.round((curFilmstrip.width * h) / curFilmstrip.height);
+  const w = Math.max(lw, rw);
+  const sep = 4;
+  const composite = new PNG({ width: w, height: h * 2 + sep });
+  for (let i = 0; i < composite.data.length; i += 4) composite.data[i + 3] = 255;
+  const refResized = nearestNeighborResize(refFilmstrip, w, h);
+  const curResized = nearestNeighborResize(curFilmstrip, w, h);
+  for (let y = 0; y < h; y++) {
+    refResized.data.copy(composite.data, y * w * 4, y * w * 4, (y + 1) * w * 4);
+    curResized.data.copy(composite.data, (y + h + sep) * w * 4, y * w * 4, (y + 1) * w * 4);
+  }
+  // Per-frame mean abs diff if we have a saved frame count to align with.
+  let meta = null;
+  try {
+    meta = existsSync(mpath) ? JSON.parse(readFileSync(mpath, 'utf8')) : null;
+  } catch { /* tolerate corrupt meta */ }
+  const motionDiff = meanAbsDiff(refFilmstrip, curFilmstrip);
+  return {
+    refFilmstripPath: fpath,
+    refMeta: meta,
+    motionDiff,
+    compositeBase64: PNG.sync.write(composite).toString('base64'),
+  };
 }
 
 export function diffReference({ cwd, element, camera, currentBase64 }) {

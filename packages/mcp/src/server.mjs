@@ -29,7 +29,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { setReference, diffReference, refsPath, composeFilmstrip, motionMagnitudeFromFrames } from './refs.mjs';
+import {
+  setReference, diffReference, refsPath,
+  composeFilmstrip, motionMagnitudeFromFrames,
+  setReferenceMotion, diffReferenceMotion, refsMotionPaths,
+} from './refs.mjs';
 import { createBrowserPool } from './browser.mjs';
 
 const browserPool = createBrowserPool();
@@ -188,6 +192,23 @@ async function captureViews({ element, labUrl, inline = true }) {
     captureMs: Date.now() - t0,
     _base64ByCam: base64ByCam,
   };
+}
+
+async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUrl }) {
+  // Like captureMotion but for ONE camera, returns the raw base64 PNG frames.
+  // Used internally by set_reference_motion + diff_reference_motion.
+  const target = await resolveLabUrl({ element, labUrl });
+  const { call } = await browserPool.getPage(target);
+  const result = await call('Runtime.evaluate', {
+    expression: `window.__TRISCOPE__.captureMotionFrames(${JSON.stringify(camera)}, ${JSON.stringify({ frames, dt, mode })})`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  const frames_ = result.result.result.value;
+  if (!Array.isArray(frames_) || frames_.length === 0) {
+    throw new Error(`captureMotionFrames returned empty for camera "${camera}"`);
+  }
+  return frames_.map((du) => du.replace(/^data:image\/png;base64,/, ''));
 }
 
 async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 'time', labUrl }) {
@@ -360,6 +381,42 @@ const tools = [
     },
   },
   {
+    name: 'set_reference_motion',
+    description:
+      'Capture the CURRENT motion sequence at (element, camera) and save it as the animated reference. Writes <project>/refs/<element>/<camera>.motion.png (filmstrip) + <camera>.motion.json (frames/dt/mode metadata). Use to lock in a known-good animation before risky shader/uniform edits, then diff_reference_motion confirms regressions visually + numerically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string' },
+        camera: { type: 'string' },
+        frames: { type: 'number', description: 'Default 6.' },
+        dt: { type: 'number', description: 'Seconds between frames. Default 0.25.' },
+        mode: { type: 'string', enum: ['time', 'real'], description: 'Default "time".' },
+        labUrl: { type: 'string' },
+      },
+      required: ['element', 'camera'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'diff_reference_motion',
+    description:
+      'Capture current motion at (element, camera), diff against the saved animated reference. Returns a vertically-stacked composite (reference filmstrip on top, current on bottom) inline AND a scalar motionDiff (0=identical animation, >5=visible drift, >30=clearly different). Requires a prior set_reference_motion for the same (element, camera).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string' },
+        camera: { type: 'string' },
+        frames: { type: 'number' },
+        dt: { type: 'number' },
+        mode: { type: 'string', enum: ['time', 'real'] },
+        labUrl: { type: 'string' },
+      },
+      required: ['element', 'camera'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'capture_motion',
     description:
       'Capture N frames per camera spaced by dt seconds, compose each into an inline filmstrip image (frames tiled left-to-right), and return a numeric motionMagnitude per camera (0-255 scale; <1 = static, >5 = visible motion, >20 = vigorous). Use this WHEN THE ELEMENT HAS ANIMATION (shader-driven motion, sail billow, particle systems, oscillation) — a single capture_views frame cannot reveal whether motion is happening. For complementary numeric verification of hidden animated state, read_telemetry .elements.<name>.motion (if the Element declared motionProbes).',
@@ -496,6 +553,74 @@ export async function startServer() {
                 meanAbsDiff: diff.meanAbsDiff,
                 hint: '0 = identical, ~30 = visibly close, >80 = clearly different',
               }, null, 2) },
+              { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
+            ],
+          };
+        }
+        case 'set_reference_motion': {
+          const parsed = z
+            .object({
+              element: z.string(),
+              camera: z.string(),
+              frames: z.number().int().min(2).max(32).optional(),
+              dt: z.number().positive().max(5).optional(),
+              mode: z.enum(['time', 'real']).optional(),
+              labUrl: z.string().optional(),
+            })
+            .parse(args);
+          const opts = { frames: parsed.frames ?? 6, dt: parsed.dt ?? 0.25, mode: parsed.mode ?? 'time' };
+          const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
+          const r = setReferenceMotion({
+            cwd: process.cwd(),
+            element: parsed.element,
+            camera: parsed.camera,
+            frameBase64s: frameB64s,
+            meta: opts,
+          });
+          return jsonResult(r);
+        }
+        case 'diff_reference_motion': {
+          const parsed = z
+            .object({
+              element: z.string(),
+              camera: z.string(),
+              frames: z.number().int().min(2).max(32).optional(),
+              dt: z.number().positive().max(5).optional(),
+              mode: z.enum(['time', 'real']).optional(),
+              labUrl: z.string().optional(),
+            })
+            .parse(args);
+          const { filmstrip, meta } = refsMotionPaths(process.cwd(), parsed.element, parsed.camera);
+          if (!existsSync(filmstrip)) {
+            return {
+              isError: true,
+              content: [{ type: 'text', text: `no motion reference at ${filmstrip}. Call set_reference_motion first.` }],
+            };
+          }
+          // Inherit frame/dt/mode from saved metadata so the comparison is fair.
+          let savedMeta = {};
+          try { savedMeta = existsSync(meta) ? JSON.parse(readFileSync(meta, 'utf8')) : {}; } catch {}
+          const opts = {
+            frames: parsed.frames ?? savedMeta.frames ?? 6,
+            dt: parsed.dt ?? savedMeta.dt ?? 0.25,
+            mode: parsed.mode ?? savedMeta.mode ?? 'time',
+          };
+          const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
+          const diff = diffReferenceMotion({
+            cwd: process.cwd(),
+            element: parsed.element,
+            camera: parsed.camera,
+            currentFrames: frameB64s,
+          });
+          return {
+            content: [
+              { type: 'text', text: JSON.stringify({
+                  camera: parsed.camera,
+                  refFilmstripPath: diff.refFilmstripPath,
+                  refMeta: diff.refMeta,
+                  motionDiff: diff.motionDiff,
+                  hint: '0 = identical animation, >5 = visible drift, >30 = clearly different',
+                }, null, 2) },
               { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
             ],
           };
