@@ -410,8 +410,12 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       // render or any shader using three/tsl's `time` will appear frozen.
       const wasRunning = running;
       running = false;
-      const baseT = time.value;
+      // Fully deterministic: always start the captured sequence at t=0 so
+      // two captures of the same element+shader produce byte-identical
+      // frames (no dependency on when captureMotionFrames was invoked).
+      const baseT = 0;
       const baseDt = dt.value;
+      const liveTime = time.value;
       const rendererAny = renderer as unknown as {
         nodeFrame?: { time: number; deltaTime: number };
         _nodes?: { nodeFrame?: { time: number; deltaTime: number } };
@@ -434,7 +438,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
           out.push(renderer.domElement.toDataURL('image/png'));
         }
       } finally {
-        time.value = baseT;
+        time.value = liveTime;     // restore the live RAF-accumulated time
         dt.value = baseDt;
         if (nf) {
           nf.time = baseFrameT;
