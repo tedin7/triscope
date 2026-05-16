@@ -52,6 +52,7 @@ function parseFlags(argv) {
     const a = argv[i];
     if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--project') flags.project = true;
+    else if (a === '--no-hook') flags['no-hook'] = true;
     else if (a === '--url') flags.url = argv[++i];
     else if (a === '--file') flags.file = argv[++i];
     else if (a === '--port') flags.port = argv[++i];
@@ -91,6 +92,7 @@ async function main() {
           action: positional[0],
           scope: flags.project ? 'project' : 'user',
           url: flags.url,
+          withHook: flags['no-hook'] !== true,
         });
         break;
       case 'auto-capture':

@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'no
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 
 const SERVER_NAME = 'triscope';
 const DEFAULT_URL = 'http://localhost:5173';
@@ -65,18 +66,77 @@ function removeFromProjectMcpJson() {
   return path;
 }
 
-export async function runMcp({ action, scope = 'user', url = DEFAULT_URL }) {
-  if (!action || action === 'help') {
-    console.log(`triscope mcp <install|uninstall> [--project] [--url <url>]
+// Hook config — same shape across user/project scope. The "_triscope" tag
+// lets uninstall find and remove our entry without touching unrelated hooks.
+const HOOK_COMMAND = 'triscope auto-capture --file "${TOOL_INPUT_file_path:-}"';
+function triscopeHookSpec() {
+  return {
+    matcher: 'Edit|Write',
+    _triscope: true,
+    hooks: [{ type: 'command', command: HOOK_COMMAND }],
+  };
+}
 
-  install              Register the triscope MCP server with Claude Code
+function settingsPathForScope(scope) {
+  if (scope === 'project') {
+    return join(process.cwd(), '.claude', 'settings.local.json');
+  }
+  return join(homedir(), '.claude', 'settings.json');
+}
+
+function mergeHook(scope) {
+  const path = settingsPathForScope(scope);
+  mkdirSync(dirname(path), { recursive: true });
+  let data = {};
+  if (existsSync(path)) {
+    try { data = JSON.parse(readFileSync(path, 'utf8')); } catch {
+      // Settings file is malformed — refuse rather than silently overwrite.
+      throw new Error(`refusing to overwrite malformed JSON at ${path}`);
+    }
+  }
+  data.hooks ??= {};
+  data.hooks.PostToolUse ??= [];
+  // Skip if our entry is already present (idempotent install).
+  const already = data.hooks.PostToolUse.some(
+    (e) => e?._triscope === true ||
+           e?.hooks?.some?.((h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture')),
+  );
+  if (!already) data.hooks.PostToolUse.push(triscopeHookSpec());
+  writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
+  return { path, added: !already };
+}
+
+function unmergeHook(scope) {
+  const path = settingsPathForScope(scope);
+  if (!existsSync(path)) return { path, removed: false };
+  let data;
+  try { data = JSON.parse(readFileSync(path, 'utf8')); } catch { return { path, removed: false }; }
+  const arr = data?.hooks?.PostToolUse;
+  if (!Array.isArray(arr)) return { path, removed: false };
+  const before = arr.length;
+  data.hooks.PostToolUse = arr.filter(
+    (e) => !(e?._triscope === true ||
+             e?.hooks?.some?.((h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture'))),
+  );
+  if (data.hooks.PostToolUse.length === before) return { path, removed: false };
+  writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
+  return { path, removed: true };
+}
+
+export async function runMcp({ action, scope = 'user', url = DEFAULT_URL, withHook = true }) {
+  if (!action || action === 'help') {
+    console.log(`triscope mcp <install|uninstall> [--project] [--no-hook] [--url <url>]
+
+  install              Register the triscope MCP server with Claude Code AND
+                       wire the PostToolUse auto-capture hook into settings
                        (default: user scope, so it's available in every chat).
-  install --project    Write/merge .mcp.json in the current directory instead
-                       (project-scoped, shared with collaborators if committed).
-  uninstall            Remove the triscope MCP registration matching --scope.
+  install --project    Write/merge .mcp.json + .claude/settings.local.json
+                       in the current directory instead.
+  uninstall            Remove the triscope MCP registration and the hook.
 
 OPTIONS
-  --project            Use project scope (.mcp.json in cwd) instead of user.
+  --project            Use project scope (cwd-local files) instead of user.
+  --no-hook            Skip the PostToolUse hook (MCP-only install).
   --url <url>          Override TRISCOPE_URL env (default ${DEFAULT_URL}).
 `);
     return;
@@ -96,6 +156,12 @@ OPTIONS
     if (scope === 'project') {
       const path = writeProjectMcpJson(bin, url);
       console.log(`wrote project-scoped registration to ${path}`);
+      if (withHook) {
+        const r = mergeHook('project');
+        console.log(r.added
+          ? `added PostToolUse hook to ${r.path}`
+          : `hook already present in ${r.path}`);
+      }
       console.log('restart Claude Code in this directory to pick it up.');
       return;
     }
@@ -111,6 +177,12 @@ OPTIONS
       '--', 'node', bin,
     ]);
     console.log(`\ntriscope registered (user scope). bin: ${bin}`);
+    if (withHook) {
+      const r = mergeHook('user');
+      console.log(r.added
+        ? `added PostToolUse hook to ${r.path}`
+        : `hook already present in ${r.path}`);
+    }
     return;
   }
 
@@ -119,10 +191,14 @@ OPTIONS
       const path = removeFromProjectMcpJson();
       if (path) console.log(`removed triscope from ${path}`);
       else console.log('no project-scoped triscope entry found.');
+      const h = unmergeHook('project');
+      if (h.removed) console.log(`removed PostToolUse hook from ${h.path}`);
       return;
     }
     if (!hasClaudeCli()) throw new Error('claude CLI not on PATH.');
     runClaude(['mcp', 'remove', SERVER_NAME, '--scope', 'user']);
+    const h = unmergeHook('user');
+    if (h.removed) console.log(`removed PostToolUse hook from ${h.path}`);
     return;
   }
 
