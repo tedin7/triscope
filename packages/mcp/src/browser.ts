@@ -7,10 +7,41 @@
 // the user-data-dir via the OS, since /tmp is volatile).
 
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Logger } from './logger.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const DEFAULT_CHROME_ARGS = [
+  '--enable-unsafe-webgpu',
+  '--ignore-gpu-blocklist',
+];
+
+function parseExtraChromeArgs(): string[] {
+  const raw = process.env.TRISCOPE_CHROME_ARGS ?? '';
+  if (!raw.trim()) return [];
+  // Keep this intentionally simple: env-configured args are whitespace split.
+  // Flags containing spaces should be wrapped in a tiny launcher script and
+  // provided via CHROME_BIN instead.
+  return raw.trim().split(/\s+/).filter(Boolean);
+}
+
+function tailLines(text: string, maxLines = 24): string {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  return lines.slice(-maxLines).join('\n');
+}
+
+async function readDevtoolsPages(port: number): Promise<any[] | null> {
+  try {
+    const pages = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(1000) }).then((r) => r.json());
+    return Array.isArray(pages) && pages.length > 0 ? pages : null;
+  } catch {
+    return null;
+  }
+}
 
 function cdpClient(ws) {
   const pending = new Map();
@@ -49,6 +80,28 @@ function cdpClient(ws) {
  *   4. OS-typical defaults (Windows: Program Files\Google\Chrome; macOS:
  *      /Applications/Google Chrome.app; Linux: PATH-relative `chromium`)
  */
+
+function inferGraphicalEnv(): NodeJS.ProcessEnv {
+  if (process.platform !== 'linux') return process.env;
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const runtimeDir = env.XDG_RUNTIME_DIR || (uid !== undefined ? `/run/user/${uid}` : undefined);
+
+  if (runtimeDir && existsSync(runtimeDir)) {
+    env.XDG_RUNTIME_DIR = runtimeDir;
+    if (!env.WAYLAND_DISPLAY) {
+      try {
+        const waylandSocket = readdirSync(runtimeDir).find((name) => /^wayland-\d+$/.test(name));
+        if (waylandSocket) env.WAYLAND_DISPLAY = waylandSocket;
+      } catch { /* best-effort */ }
+    }
+  }
+
+  if (!env.DISPLAY && existsSync('/tmp/.X11-unix/X0')) env.DISPLAY = ':0';
+  return env;
+}
+
 function defaultChromeBinary(): string {
   if (process.platform === 'win32') {
     // Windows users normally install Chrome under Program Files. We don't
@@ -66,33 +119,16 @@ function defaultChromeBinary(): string {
 export function createBrowserPool({
   chromeBin = process.env.CHROME_BIN ?? process.env.PUPPETEER_EXECUTABLE_PATH ?? defaultChromeBinary(),
   port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230),
+  logger = undefined as Logger | undefined,
 } = {}) {
-  let chrome = null;
+  let chrome: ChildProcessWithoutNullStreams | null = null;
+  let chromeExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+  let chromeStderr = '';
   let ws = null;
   let call = null;
   let currentUrl = null;
 
-  async function ensureBrowser(initialUrl) {
-    if (chrome && !chrome.killed && ws && ws.readyState === 1) return;
-    const profile = join(tmpdir(), `triscope-mcp-profile-${process.pid}`);
-    chrome = spawn(chromeBin, [
-      '--enable-unsafe-webgpu',
-      '--ignore-gpu-blocklist',
-      `--user-data-dir=${profile}`,
-      `--remote-debugging-port=${port}`,
-      '--window-size=1600,900',
-      initialUrl,
-    ]);
-    let pages;
-    const start = Date.now();
-    while (Date.now() - start < 10000) {
-      try {
-        pages = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json());
-        if (Array.isArray(pages) && pages.length > 0) break;
-      } catch {}
-      await wait(250);
-    }
-    if (!pages) throw new Error('DevTools endpoint did not become ready');
+  async function connectToPage(initialUrl: string, pages: any[]) {
     const page = pages.find((p) => p.url === initialUrl || p.url?.startsWith(initialUrl)) ?? pages[0];
     ws = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((res, rej) => {
@@ -102,7 +138,80 @@ export function createBrowserPool({
     call = cdpClient(ws);
     await call('Runtime.enable');
     await call('Page.enable');
-    currentUrl = initialUrl;
+    currentUrl = page.url ?? initialUrl;
+    if (currentUrl !== initialUrl) await navigateIfNeeded(initialUrl);
+  }
+
+  function chromeLaunchArgs(profile: string, initialUrl: string): string[] {
+    return [
+      ...DEFAULT_CHROME_ARGS,
+      ...parseExtraChromeArgs(),
+      `--user-data-dir=${profile}`,
+      `--remote-debugging-port=${port}`,
+      '--window-size=1600,900',
+      initialUrl,
+    ];
+  }
+
+  async function ensureBrowser(initialUrl: string) {
+    if (chrome && !chrome.killed && ws && ws.readyState === 1) return;
+
+    // First attach to an already-running browser on the configured port. This
+    // is the reliable path in sandboxed agents where opening a headed GUI may
+    // require a user-approved launcher outside the MCP process.
+    const existingPages = await readDevtoolsPages(port);
+    if (existingPages) {
+      logger?.info('browser', 'attaching to existing DevTools endpoint', { port, pages: existingPages.length });
+      await connectToPage(initialUrl, existingPages);
+      return;
+    }
+
+    const profile = join(tmpdir(), `triscope-mcp-profile-${process.pid}`);
+    const args = chromeLaunchArgs(profile, initialUrl);
+    chromeExit = null;
+    chromeStderr = '';
+    const browserEnv = inferGraphicalEnv();
+    logger?.info('browser', 'spawning chromium', {
+      chromeBin,
+      port,
+      profile,
+      args,
+      env: {
+        DISPLAY: browserEnv.DISPLAY,
+        WAYLAND_DISPLAY: browserEnv.WAYLAND_DISPLAY,
+        XDG_RUNTIME_DIR: browserEnv.XDG_RUNTIME_DIR,
+      },
+    });
+    chrome = spawn(chromeBin, args, { stdio: ['ignore', 'ignore', 'pipe'], env: browserEnv });
+    chrome.stderr.on('data', (d) => {
+      chromeStderr += String(d);
+      if (chromeStderr.length > 12000) chromeStderr = chromeStderr.slice(-12000);
+    });
+    chrome.on('exit', (code, signal) => {
+      chromeExit = { code, signal };
+      logger?.warn('browser', 'chromium exited', { code, signal, stderr: tailLines(chromeStderr) });
+    });
+    chrome.on('error', (err) => {
+      chromeExit = { code: 1, signal: null };
+      chromeStderr += `\nspawn error: ${(err as any)?.message ?? String(err)}`;
+      logger?.error('browser', 'chromium spawn error', { message: (err as any)?.message ?? String(err) });
+    });
+
+    let pages: any[] | null = null;
+    const start = Date.now();
+    while (Date.now() - start < 10000) {
+      pages = await readDevtoolsPages(port);
+      if (pages) break;
+      if (chromeExit) break;
+      await wait(250);
+    }
+    if (!pages) {
+      const stderr = tailLines(chromeStderr);
+      const exit = chromeExit ? ` chromiumExit=${JSON.stringify(chromeExit)}` : '';
+      const hint = 'If this runs under Codex/Claude and headed launch still fails, pre-launch Chrome with --remote-debugging-port or set TRISCOPE_CHROME_ARGS=--headless=new for non-interactive capture.';
+      throw new Error(`DevTools endpoint did not become ready on 127.0.0.1:${port}.${exit}${stderr ? `\nstderr:\n${stderr}` : ''}\n${hint}`);
+    }
+    await connectToPage(initialUrl, pages);
   }
 
   function harnessNotMountedError(url: string) {
@@ -165,7 +274,7 @@ export function createBrowserPool({
   function disposeQuiet() {
     try { ws?.close(); } catch {}
     try { if (chrome && !chrome.killed) chrome.kill(); } catch {}
-    ws = null; chrome = null; call = null; currentUrl = null;
+    ws = null; chrome = null; call = null; currentUrl = null; chromeExit = null; chromeStderr = '';
   }
 
   return {

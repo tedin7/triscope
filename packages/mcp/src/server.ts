@@ -38,12 +38,6 @@ import {
 import { createBrowserPool } from './browser.js';
 import { createLogger } from './logger.js';
 
-const browserPool = createBrowserPool();
-const shutdown = () => browserPool.dispose();
-process.on('exit', shutdown);
-process.on('SIGINT', () => { shutdown(); process.exit(130); });
-process.on('SIGTERM', () => { shutdown(); process.exit(143); });
-
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function readProjectName(cwd) {
@@ -76,6 +70,11 @@ const SERVER_START_TIME = Date.now();
 const RECENT_ERRORS_CAP = 16;
 const recentErrors: string[] = [];
 const logger = createLogger(PROJECT);
+const browserPool = createBrowserPool({ logger });
+const shutdown = () => browserPool.dispose();
+process.on('exit', shutdown);
+process.on('SIGINT', () => { shutdown(); process.exit(130); });
+process.on('SIGTERM', () => { shutdown(); process.exit(143); });
 function recordError(source: string, err: unknown) {
   const detail = (err as any)?.stack ?? (err as any)?.message ?? String(err);
   const msg = `[${new Date().toISOString()}] ${source}: ${detail}`;
@@ -957,9 +956,13 @@ const tools = [
 ];
 
 function jsonResult(value) {
+  let text: string;
+  if (value === undefined) text = 'undefined';
+  else if (typeof value === 'string') text = value;
+  else text = JSON.stringify(value, null, 2);
   return {
     content: [
-      { type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) },
+      { type: 'text', text },
     ],
   };
 }
