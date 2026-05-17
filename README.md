@@ -140,10 +140,21 @@ cd <your-triscope-project>
 npx triscope mcp install            # adds .mcp.json
 ```
 
-The MCP server exposes: `list_elements`, `read_telemetry`, `set_knob`,
-`capture_views`, `capture_motion`, `set_reference[_motion]`,
-`diff_reference[_motion]`, `run_smoke`, `health`. All talk to the running
-dev server (`http://localhost:5173`) and a persistent Chromium pool.
+The MCP server exposes:
+
+| Tool | Purpose |
+|---|---|
+| `list_elements` / `read_telemetry` / `health` | introspection |
+| `set_knob` | live knob updates (single or batched) |
+| `capture_views` / `capture_motion` | per-camera PNGs or motion filmstrips |
+| `set_reference[_motion]` / `diff_reference[_motion]` | reference images + perceptual diff (meanAbsDiff + SSIM) |
+| `auto_tune` | golden-section knob convergence on SSIM vs reference |
+| `inspect` / `open_selection` | flip the running lab into solo+OrbitControls inspect mode; click a mesh, then `open_selection` jumps your editor to that file:line |
+| `snapshot` / `restore` / `list_snapshots` | freeze HEAD commit + knob values as a git tag; restore later via checkout + knob replay |
+| `run_smoke` | CI gate; runs the headed-Chromium harness |
+
+All talk to the running dev server (`http://localhost:5173`) and a
+persistent Chromium pool.
 
 See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
 
@@ -164,13 +175,21 @@ See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
 
 - [x] `@triscope/core` Element contract + harness + Vite plugin
 - [x] `@triscope/mcp` capture/diff/knob/telemetry tools + supervisor + health
-- [x] vitest suite (motion probes + Vite plugin, 24 tests)
+- [x] vitest suite (motion probes + Vite plugin + composer, 33 tests)
 - [x] `examples/ocean-galleon` runnable from a fresh clone
-- [x] CI: matrix node 20/22 + real ocean-galleon smoke under xvfb
-- [ ] `triscope init` (wired to `create-triscope`)
-- [ ] `@triscope/mcp` ported to TypeScript with zod-validated tool args
-- [ ] GPU readback probes (luminance, dynamic range) on captures
-- [ ] Snapshot/restore via git tags (per [`docs/design.md`](./docs/design.md))
+- [x] `triscope init` (wired to `create-triscope`)
+- [x] `@triscope/mcp` ported to TypeScript with zod-validated tool args
+- [x] GPU readback probes (luminance, dynamic range) on captures + server fallback
+- [x] Inline payload safety cap (no more OOM on large captures)
+- [x] Per-element telemetry merge (multi-lab without state clobbering)
+- [x] Structured logger + CHROME_BIN env propagation
+- [x] **Inspect mode** — auto source-tag on `Object3D.add` + URL `?inspect=<el>` + OrbitControls + click-to-pick + hover highlight + cross-reload persistence
+- [x] **`mcp__triscope__inspect` + `mcp__triscope__open_selection`** — chat-native inspect loop, jumps editor to file:line
+- [x] **SSIM perceptual diff** (alongside meanAbsDiff)
+- [x] **`mcp__triscope__auto_tune`** — golden-section knob convergence on SSIM vs reference
+- [x] **Snapshot/restore via git tags** (per [`docs/design.md`](./docs/design.md))
+- [x] **`composeElements`** — multi-element labs with namespaced cameras/knobs/probes
+- [ ] CI revival (build → typecheck order, xvfb smoke, npm publish gate)
 - [ ] npm publish + tagged release
 
 ## License

@@ -17,6 +17,9 @@ export { installSourceTagPatch } from './source-tag.js';
 export type { SourceFrame, SourceTag } from './source-tag.js';
 export type { InspectSelection } from './inspect.js';
 
+export { composeElements } from './compose.js';
+export type { ComposeOptions } from './compose.js';
+
 export { mountEditor } from './editor.js';
 
 export { mountLabDom } from './lab/dom.js';
