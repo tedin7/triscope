@@ -13,3 +13,7 @@ export { runLab } from './harness.js';
 export type { LabOptions, LabHandle, GpuProbeStats } from './harness.js';
 
 export { mountEditor } from './editor.js';
+
+export { mountLabDom } from './lab/dom.js';
+export type { LabDomRefs } from './lab/dom.js';
+export { LAB_CSS } from './lab/css.js';
