@@ -6,6 +6,7 @@ import { runList } from '../src/list.mjs';
 import { runSmoke } from '../src/smoke.mjs';
 import { runMcp } from '../src/mcp.mjs';
 import { runAutoCapture } from '../src/auto-capture.mjs';
+import { runInit } from '../src/init.mjs';
 
 const [, , subcommand, ...rest] = process.argv;
 
@@ -15,6 +16,9 @@ USAGE
   triscope <command> [options]
 
 COMMANDS
+  init <dir> [--install]    Scaffold a new triscope project in <dir>. Wraps
+                            create-triscope. With --install, also runs
+                            \`npm install\` in the new directory.
   dev                       Start the Vite dev server (in the current project).
   state [<jq.path>]         Read /tmp/<project>-state.json. With a path
                             (e.g. ".elements.ship.triangles"), prints just
@@ -57,6 +61,7 @@ function parseFlags(argv) {
     else if (a === '--file') flags.file = argv[++i];
     else if (a === '--port') flags.port = argv[++i];
     else if (a === '--screenshot') flags.screenshot = argv[++i];
+    else if (a === '--install') flags.install = true;
     else if (a.startsWith('--')) flags[a.slice(2)] = argv[++i];
     else positional.push(a);
   }
@@ -75,6 +80,9 @@ async function main() {
   }
   try {
     switch (subcommand) {
+      case 'init':
+        await runInit({ dir: positional[0], install: flags.install });
+        break;
       case 'dev':
         await runDev({ port: flags.port });
         break;
