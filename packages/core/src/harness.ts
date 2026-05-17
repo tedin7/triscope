@@ -236,6 +236,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   // grid view when the URL param is absent or targets a different element.
   let inspectMode: InspectMode | null = null;
   let currentSelection: InspectSelection | null = null;
+  let currentSelections: InspectSelection[] = [];
   const inspectCfg = readInspectFromUrl(element.name);
   if (inspectCfg) {
     inspectMode = createInspectMode({
@@ -245,10 +246,12 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       elementName: element.name,
       canvas,
       cameraName: inspectCfg.camera,
-      onSelectionChange: (sel) => {
+      onSelectionChange: (sel, all) => {
         currentSelection = sel;
+        currentSelections = all ?? [];
         if (typeof window !== 'undefined' && window.__TRISCOPE__) {
           (window.__TRISCOPE__ as any).lastSelection = sel;
+          (window.__TRISCOPE__ as any).selections = currentSelections;
         }
       },
     });
@@ -369,6 +372,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       // `read_telemetry .selection` so the model knows which file:line to
       // edit when the user says "fix this".
       selection: currentSelection,
+      selections: currentSelections,
       inspectActive: !!inspectMode?.active,
     };
   }

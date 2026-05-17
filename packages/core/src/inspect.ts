@@ -42,7 +42,7 @@ export interface InspectMode {
   /** Renders the solo view for this frame. Call instead of grid renderAll(). */
   render(): void;
   /** Pull current hover/selection state. */
-  state(): { hover: InspectSelection | null; selection: InspectSelection | null };
+  state(): { hover: InspectSelection | null; selection: InspectSelection | null; selections: InspectSelection[] };
   dispose(): void;
 }
 
@@ -54,8 +54,13 @@ export interface InspectInit {
   elementName: string;
   /** Canvas the user clicks on. */
   canvas: HTMLCanvasElement;
-  /** Called when selection (click) changes — typically writes to telemetry. */
-  onSelectionChange: (sel: InspectSelection | null) => void;
+  /**
+   * Called when selection changes. `sel` is the most-recently-clicked
+   * mesh (or null on background click), `all` is the full multi-select
+   * set including this one. Multi-select is built with Shift+click;
+   * a plain click clears the set and starts fresh with one item.
+   */
+  onSelectionChange: (sel: InspectSelection | null, all: InspectSelection[]) => void;
 }
 
 /**
@@ -104,7 +109,7 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
       cameraName: null,
       camera: null,
       render: () => {},
-      state: () => ({ hover: null, selection: null }),
+      state: () => ({ hover: null, selection: null, selections: [] }),
       dispose: () => {},
     };
   }
@@ -154,6 +159,15 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
   let selectionHit: InspectSelection | null = null;
   let hoveredObject: THREE.Object3D | null = null;
   let selectedObject: THREE.Object3D | null = null;
+  // Multi-select state. selectionsByUuid maps uuid → selection. extraOverlays
+  // maps uuid → its wireframe overlay Mesh (the primary cyan overlay is
+  // reserved for the most-recently-clicked item, kept in sync with
+  // selectedObject). Built up via Shift+click; plain click resets.
+  const selectionsByUuid = new Map<string, InspectSelection>();
+  const extraOverlaysByUuid = new Map<string, THREE.Mesh>();
+  const extraOverlayMat = new THREE.MeshBasicNodeMaterial({
+    color: 0x00ccff, wireframe: true, transparent: true, opacity: 0.75, depthTest: false,
+  });
 
   function eventToNdc(ev: MouseEvent): void {
     const rect = init.canvas.getBoundingClientRect();
@@ -221,24 +235,67 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     });
   }
 
+  function clearMultiOverlays(): void {
+    for (const ov of extraOverlaysByUuid.values()) init.scene.remove(ov);
+    extraOverlaysByUuid.clear();
+    selectionsByUuid.clear();
+  }
+
+  function addMultiOverlay(uuid: string, target: THREE.Mesh): void {
+    const ov = new THREE.Mesh(new THREE.BufferGeometry(), extraOverlayMat);
+    ov.renderOrder = 1000;
+    ov.frustumCulled = false;
+    ov.raycast = () => {};
+    init.scene.add(ov);
+    extraOverlaysByUuid.set(uuid, ov);
+    syncOverlayTo(target, ov);
+  }
+
+  /** Best-effort clipboard write — silently ignores rejections on browsers
+   *  that gate `navigator.clipboard` behind a user-activation check (it's
+   *  fine here because we're called from a click event handler). */
+  function copySelection(sel: InspectSelection): void {
+    const src = sel.source;
+    // Compact form: file:line — paste-friendly into chat or grep.
+    const compact = src ? `${src.file}:${src.line}` : `(${sel.type} uuid=${sel.uuid})`;
+    try { (navigator as any).clipboard?.writeText(compact); } catch {}
+  }
+
   function onMouseDown(ev: MouseEvent): void {
     if (ev.button !== 0) return; // left only
     eventToNdc(ev);
     const hit = pick();
     if (!hit) {
-      selectionHit = null;
-      selectedObject = null;
-      selectOverlay.visible = false;
-      init.onSelectionChange(null);
-      try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
+      // Plain background click clears everything; Shift+background keeps
+      // the current multi-set so the user can de-target a stray click.
+      if (!ev.shiftKey) {
+        selectionHit = null;
+        selectedObject = null;
+        selectOverlay.visible = false;
+        clearMultiOverlays();
+        init.onSelectionChange(null, []);
+        try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
+      }
       return;
     }
+    const sel = selectionFrom(hit);
+    if (!ev.shiftKey) {
+      // Plain click: replace set with this one item.
+      clearMultiOverlays();
+    }
     selectedObject = hit.obj;
-    selectionHit = selectionFrom(hit);
+    selectionHit = sel;
     syncOverlayTo(hit.obj as THREE.Mesh, selectOverlay);
-    init.onSelectionChange(selectionHit);
+    // Track in multi-set too — even single-select benefits from a uniform
+    // selections[] array downstream.
+    if (!selectionsByUuid.has(sel.uuid) && ev.shiftKey) {
+      addMultiOverlay(sel.uuid, hit.obj as THREE.Mesh);
+    }
+    selectionsByUuid.set(sel.uuid, sel);
+    init.onSelectionChange(sel, [...selectionsByUuid.values()]);
+    copySelection(sel);
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selectionHit));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
     } catch {}
   }
 
@@ -247,16 +304,21 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
 
   // Restore last selection across full-reload (vite force-reload on
   // shader edits). Match by source frame (file:line) — the actual Mesh
-  // object is new after reload but the source location is stable. We
-  // traverse the scene on next tick (give the element a moment to
-  // finish mounting children) and re-attach the cyan overlay.
+  // object is new after reload but the source location is stable.
+  //
+  // Element mounting may happen across many frames (TSL pipeline init,
+  // async texture loads, RAF-driven sub-mesh adds). Poll up to ~3 s
+  // looking for the stored source in the scene tree, so we don't give
+  // up before the element has finished assembling itself.
   const STORAGE_KEY = `triscope:selection:${init.elementName}`;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const stored = JSON.parse(raw) as InspectSelection;
-      // Use queueMicrotask so element.mount has had a chance to finish.
-      requestAnimationFrame(() => {
+      let attempts = 0;
+      const maxAttempts = 30; // 30 × 100ms ≈ 3s
+      const tryRestore = () => {
+        attempts += 1;
         try {
           const target = findMeshBySource(init.scene, stored.source);
           if (target) {
@@ -267,10 +329,17 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
               point: new THREE.Vector3(...stored.point),
             } as any);
             syncOverlayTo(target as THREE.Mesh, selectOverlay);
-            init.onSelectionChange(selectionHit);
+            selectionsByUuid.set(selectionHit.uuid, selectionHit);
+            init.onSelectionChange(selectionHit, [...selectionsByUuid.values()]);
+            return;
           }
-        } catch { /* corrupt stored selection — ignore */ }
-      });
+        } catch { /* corrupt stored selection — drop it */
+          try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
+          return;
+        }
+        if (attempts < maxAttempts) setTimeout(tryRestore, 100);
+      };
+      setTimeout(tryRestore, 100);
     }
   } catch { /* localStorage unavailable — silent */ }
 
@@ -309,7 +378,7 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     cameraName,
     camera,
     render,
-    state: () => ({ hover: hoverHit, selection: selectionHit }),
+    state: () => ({ hover: hoverHit, selection: selectionHit, selections: [...selectionsByUuid.values()] }),
     dispose,
   };
 }
