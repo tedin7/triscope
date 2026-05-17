@@ -45,8 +45,12 @@ declare module 'three/webgpu' {
     quaternion: Quaternion;
     visible: boolean;
     userData: Record<string, any>;
+    name: string;
+    parent: Object3D | null;
+    children: Object3D[];
     add(...obj: Object3D[]): this;
     remove(...obj: Object3D[]): this;
+    traverse(cb: (obj: Object3D) => void): void;
     [key: string]: any;
   }
   export class Group extends Object3D {}

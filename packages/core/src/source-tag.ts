@@ -32,7 +32,25 @@ export interface SourceTag {
   geometry?: string;
   material?: { color?: string; map?: string | null };
   name?: string;
+  /**
+   * Names of ancestor objects in the scene tree, root-first. Populated
+   * lazily when the picker reads the tag (parents may change after
+   * .add() if the user re-parents). Useful as a tie-breaker when the
+   * source-line attribution drifts (see note below).
+   */
+  parentChain?: string[];
 }
+
+/**
+ * Note on line accuracy: in browser dev mode, `new Error().stack` returns
+ * positions in the file as vite served it (after esbuild's TS-to-JS
+ * transform). Vite tries to preserve line counts but TSL `Fn(([uv]) => …)`
+ * blocks and other complex constructions can drift by tens of lines.
+ * The captured line is therefore "approximate" — close enough for
+ * `code --goto` to land in the right neighborhood, but verify visually
+ * (or use `parentChain` + `geometry` + `material.color` as cross-checks)
+ * before assuming it's exact.
+ */
 
 let patched = false;
 

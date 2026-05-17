@@ -23,7 +23,7 @@ export interface InspectSelection {
   point: [number, number, number];
   /** Distance from camera to hit. */
   distance: number;
-  /** Tag from the auto source-tag patch. */
+  /** Tag from the auto source-tag patch. May drift in vite dev — see note in source-tag.ts. */
   source: SourceTag['source'];
   stack: SourceTag['stack'];
   type: string;
@@ -31,8 +31,24 @@ export interface InspectSelection {
   material?: SourceTag['material'];
   /** Object name if author set Object3D.name. */
   name?: string;
+  /**
+   * Object name chain, root → immediate parent → self. Useful as a
+   * cross-check when `source.line` drifts: even if the line is off,
+   * "the cyan mesh inside group 'mainmast' inside scene" disambiguates.
+   */
+  parentChain: string[];
   /** Object UUID — stable for the duration of the session. */
   uuid: string;
+}
+
+function buildParentChain(obj: THREE.Object3D): string[] {
+  const chain: string[] = [];
+  let cur: THREE.Object3D | null = obj;
+  while (cur) {
+    chain.unshift(cur.name || (cur.constructor?.name ?? '?'));
+    cur = (cur as any).parent ?? null;
+  }
+  return chain;
 }
 
 export interface InspectMode {
@@ -199,6 +215,7 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
       geometry: tag?.geometry,
       material: tag?.material,
       name: tag?.name ?? hit.obj.name ?? undefined,
+      parentChain: buildParentChain(hit.obj),
       uuid: hit.obj.uuid,
     };
   }
@@ -241,7 +258,12 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     selectionsByUuid.clear();
   }
 
-  function addMultiOverlay(uuid: string, target: THREE.Mesh): void {
+  function ensureMultiOverlay(uuid: string, target: THREE.Mesh): void {
+    if (extraOverlaysByUuid.has(uuid)) {
+      // Already overlaid; just re-sync transform in case the mesh moved.
+      syncOverlayTo(target, extraOverlaysByUuid.get(uuid)!);
+      return;
+    }
     const ov = new THREE.Mesh(new THREE.BufferGeometry(), extraOverlayMat);
     ov.renderOrder = 1000;
     ov.frustumCulled = false;
@@ -282,15 +304,16 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     if (!ev.shiftKey) {
       // Plain click: replace set with this one item.
       clearMultiOverlays();
+    } else if (selectedObject && selectionHit) {
+      // Shift+click on a NEW mesh: the previous "primary" is about to lose
+      // the primary overlay (which will swap to the new mesh). Give the
+      // old primary its own multi-overlay so it stays visible. Without
+      // this the user sees only the latest pick, not the accumulated set.
+      ensureMultiOverlay(selectionHit.uuid, selectedObject as THREE.Mesh);
     }
     selectedObject = hit.obj;
     selectionHit = sel;
     syncOverlayTo(hit.obj as THREE.Mesh, selectOverlay);
-    // Track in multi-set too — even single-select benefits from a uniform
-    // selections[] array downstream.
-    if (!selectionsByUuid.has(sel.uuid) && ev.shiftKey) {
-      addMultiOverlay(sel.uuid, hit.obj as THREE.Mesh);
-    }
     selectionsByUuid.set(sel.uuid, sel);
     init.onSelectionChange(sel, [...selectionsByUuid.values()]);
     copySelection(sel);
