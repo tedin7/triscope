@@ -10,7 +10,7 @@
  * Origin at waterline center.
  */
 import * as THREE from 'three/webgpu';
-import { Fn, float, time, uniform, sin, uv, positionLocal, vec3 } from 'three/tsl';
+import { uniform } from 'three/tsl';
 
 export interface GalleonMeshResult {
   group: THREE.Group;
@@ -33,26 +33,17 @@ function pbr(color: string, roughness = 0.72, metalness = 0): THREE.MeshPhysical
   return new THREE.MeshPhysicalNodeMaterial({ color, roughness, metalness });
 }
 
-function makeSailMat(color: string, uWindPressure: ReturnType<typeof uniform>): THREE.MeshPhysicalNodeMaterial {
-  const mat = new THREE.MeshPhysicalNodeMaterial({
+function makeSailMat(color: string, _uWindPressure: ReturnType<typeof uniform>): THREE.MeshPhysicalNodeMaterial {
+  // NOTE: a TSL-driven positionNode would let sails breathe with uWindPressure,
+  // but the deeper "shader-iteration story" really lives on water3d's actual
+  // pirate ship. Here we keep a plain PBR material so the example boots fast
+  // on every WebGPU adapter without TSL compile-graph quirks.
+  return new THREE.MeshPhysicalNodeMaterial({
     color,
     roughness: 0.88,
     metalness: 0,
     side: THREE.DoubleSide,
   });
-  // TSL-driven sail curvature. Bell-shape (belly) modulated by a slow wander
-  // and a faster ripple, scaled by uWindPressure so a slack sail is still
-  // and a loaded one breathes. Displacement along local +Z (sail's plane
-  // normal before the parent group rotates it into wind direction).
-  const offset = Fn(([uvIn]: any) => {
-    const belly = sin(uvIn.x.mul(Math.PI)).mul(sin(uvIn.y.mul(Math.PI)));
-    const wander = sin(time.mul(1.4).add(uvIn.x.mul(3.0))).mul(0.15).add(0.85);
-    const ripple = sin(time.mul(2.6).add(uvIn.x.mul(7.0)).add(uvIn.y.mul(5.0))).mul(0.06);
-    return belly.mul(wander).add(ripple).mul(uWindPressure);
-  });
-  const u = uv();
-  mat.positionNode = positionLocal.add(vec3(float(0), float(0), offset(u)));
-  return mat;
 }
 
 export function createGalleonMesh(opts: GalleonMeshOptions = {}): GalleonMeshResult {

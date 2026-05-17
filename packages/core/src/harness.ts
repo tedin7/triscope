@@ -32,6 +32,8 @@ interface TriscopeGlobal {
     camera: string,
     opts?: { frames?: number; dt?: number; mode?: 'time' | 'real' },
   ) => Promise<string[]>;
+  /** Per-camera GPU probe stats from the most recent captureViews() call. */
+  lastGpuProbes?: Record<string, GpuProbeStats>;
 }
 
 export interface LabOptions {
@@ -398,7 +400,11 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
 
   async function captureViews(): Promise<Record<string, string>> {
     // Capture each camera as a separate full-canvas render to a base64 PNG.
+    // Side effect: per-camera built-in GPU probe stats (luminance, dynamic
+    // range) are computed by decoding the just-written canvas via 2D context
+    // and saved into `__TRISCOPE__.lastGpuProbes` so MCP can read them.
     const out: Record<string, string> = {};
+    const probeStats: Record<string, GpuProbeStats> = {};
     const liveW = renderer.domElement.width / renderer.getPixelRatio();
     const liveH = renderer.domElement.height / renderer.getPixelRatio();
     const w = opts.captureSize?.[0] ?? liveW;
@@ -413,6 +419,13 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       renderer.render(scene, cameras[name]);
       // The canvas now holds this camera's view. Read as data URL.
       out[name] = renderer.domElement.toDataURL('image/png');
+      // Compute GPU probe stats from the same render. We sample 64×36 px
+      // (≈2300 samples) — enough for stable luminance percentiles without
+      // making toBlob+getImageData a per-camera bottleneck.
+      probeStats[name] = sampleGpuProbes(renderer.domElement);
+    }
+    if (typeof window !== 'undefined') {
+      (window.__TRISCOPE__ as any).lastGpuProbes = probeStats;
     }
     // Restore live canvas dimensions + per-camera aspect ratios.
     resize();
@@ -446,6 +459,68 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       handle.dispose();
       renderer.dispose();
     },
+  };
+}
+
+/**
+ * Aggregated brightness/contrast scalars computed from a rendered canvas.
+ * Probes are run by the harness during `captureViews()` — they validate
+ * that the GPU actually drew something (luminance > 0 means the frame is
+ * not black; p95/p5 ratio > 1 means there's contrast).
+ */
+export interface GpuProbeStats {
+  /** Mean perceptual luminance (Rec.709) in [0, 1]. */
+  luminance: number;
+  /** 5th percentile luminance. */
+  p5: number;
+  /** 95th percentile luminance. */
+  p95: number;
+  /** p95 / max(p5, 1/255) — dynamic range proxy. */
+  dynamicRange: number;
+  /** Number of pixels sampled (typically 64×36 = 2304). */
+  samples: number;
+}
+
+const PROBE_SAMPLE_W = 64;
+const PROBE_SAMPLE_H = 36;
+let probeSampler: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+
+function sampleGpuProbes(srcCanvas: HTMLCanvasElement): GpuProbeStats {
+  // Reuse a single 64×36 2D scratch canvas so we don't allocate per frame.
+  if (!probeSampler) {
+    const c = document.createElement('canvas');
+    c.width = PROBE_SAMPLE_W;
+    c.height = PROBE_SAMPLE_H;
+    probeSampler = { canvas: c, ctx: c.getContext('2d', { willReadFrequently: true })! };
+  }
+  const { canvas: sc, ctx } = probeSampler;
+  ctx.clearRect(0, 0, sc.width, sc.height);
+  // drawImage scales the WebGPU canvas down to our sample size in one call.
+  ctx.drawImage(srcCanvas, 0, 0, sc.width, sc.height);
+  const data = ctx.getImageData(0, 0, sc.width, sc.height).data;
+  const n = sc.width * sc.height;
+  const lums = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 4] / 255;
+    const g = data[i * 4 + 1] / 255;
+    const b = data[i * 4 + 2] / 255;
+    // Rec.709 luminance.
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    lums[i] = lum;
+    sum += lum;
+  }
+  const sorted = Array.from(lums).sort((a, b) => a - b);
+  const p5 = sorted[Math.floor(n * 0.05)];
+  const p95 = sorted[Math.floor(n * 0.95)];
+  const luminance = sum / n;
+  const dynamicRange = p95 / Math.max(p5, 1 / 255);
+  return {
+    luminance: +luminance.toFixed(4),
+    p5: +p5.toFixed(4),
+    p95: +p95.toFixed(4),
+    dynamicRange: +dynamicRange.toFixed(2),
+    samples: n,
   };
 }
 

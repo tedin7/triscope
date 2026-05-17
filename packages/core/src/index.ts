@@ -10,6 +10,6 @@ export type {
 export { knobDefault } from './types.js';
 
 export { runLab } from './harness.js';
-export type { LabOptions, LabHandle } from './harness.js';
+export type { LabOptions, LabHandle, GpuProbeStats } from './harness.js';
 
 export { mountEditor } from './editor.js';

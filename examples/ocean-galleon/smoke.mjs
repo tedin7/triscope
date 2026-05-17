@@ -141,11 +141,12 @@ async function main() {
       '--use-angle=vulkan',
       '--enable-features=Vulkan',
     ] : [];
-    // Wayland sessions need explicit ozone hint or chrome falls back to X11
-    // and (when X server isn't running) can't open a window.
-    const ozoneArgs = !process.env.SMOKE_HEADLESS && process.env.WAYLAND_DISPLAY
-      ? ['--ozone-platform=wayland', '--ozone-platform-hint=wayland']
-      : [];
+    // Force X11 ozone even under Wayland: chrome's WebGPU backend uses
+    // Vulkan, and Wayland ozone is documented incompatible with Vulkan
+    // (chrome stderr: "'--ozone-platform=wayland' is not compatible with
+    // Vulkan. Consider switching to '--ozone-platform=x11'"). On a Wayland
+    // session we rely on Xwayland to bridge.
+    const ozoneArgs = process.env.SMOKE_HEADLESS ? [] : ['--ozone-platform=x11'];
     chrome = spawn(CHROME, [
       ...headlessArgs,
       ...ozoneArgs,
@@ -159,16 +160,18 @@ async function main() {
 
     // 3. Wait for CDP, attach to the lab tab.
     let pages = null;
+    let page = null;
     const start = Date.now();
     while (Date.now() - start < 15000) {
       try {
         pages = await fetch(`http://127.0.0.1:${PORT}/json`).then((r) => r.json());
-        if (pages?.length) break;
+        // Wait for the actual lab page tab, not a blank/extension page.
+        page = Array.isArray(pages) ? pages.find((p) => p.type === 'page' && p.url?.startsWith(URL)) : null;
+        if (page) break;
       } catch {}
       await wait(250);
     }
-    if (!pages?.length) fail('cdp-attach', { error: 'no CDP pages within 15s', viteLog });
-    const page = pages[0];
+    if (!page) fail('cdp-attach', { error: 'lab tab never appeared in CDP page list within 15s', pages, viteLog });
     const { default: WebSocketCtor } = await import('ws').then((m) => ({ default: m.WebSocket })).catch(() => ({ default: globalThis.WebSocket }));
     const ws = new WebSocketCtor(page.webSocketDebuggerUrl);
     await new Promise((res, rej) => {
@@ -191,7 +194,7 @@ async function main() {
     }
     if (!mounted) {
       const err = await call('Runtime.evaluate', { expression: 'document.getElementById("boot")?.textContent ?? ""', returnByValue: true });
-      fail('mount', { error: 'window.__TRISCOPE__ never appeared within 30s', bootMsg: err.result.result.value, viteLog });
+      fail('mount', { error: 'window.__TRISCOPE__ never appeared within 30s', bootMsg: err.result.result.value, viteLog, consoleAll: consoleLog });
     }
 
     // 5. Wait until the harness has written telemetry at least once (every
@@ -282,6 +285,7 @@ async function main() {
     }
     // 8. Optional visual diff (only if PNGs were captured at full size).
     let visualDiffCount = null;
+    let gpuProbes = null;
     if (visualDiffSupported) {
       const afterViewsResp = await call('Runtime.evaluate', {
         expression: 'window.__TRISCOPE__.captureViews()',
@@ -299,6 +303,19 @@ async function main() {
       if (visualDiffCount === 0) {
         fail('visual-change', { error: 'all camera PNGs byte-identical after knob change', cameras });
       }
+
+      // GPU probe assertion: captureViews populates window.__TRISCOPE__
+      // .lastGpuProbes with per-camera luminance / dynamic range. A black
+      // frame would show luminance < 0.005 — catch render-to-black.
+      const probesResp = await call('Runtime.evaluate', {
+        expression: 'JSON.stringify(window.__TRISCOPE__.lastGpuProbes ?? {})',
+        returnByValue: true,
+      });
+      gpuProbes = JSON.parse(probesResp.result.result.value);
+      const dark = Object.entries(gpuProbes).filter(([, s]) => s && s.luminance < 0.005);
+      if (dark.length === Object.keys(gpuProbes).length && Object.keys(gpuProbes).length > 0) {
+        fail('gpu-probe', { error: 'every camera reported luminance < 0.005 — frame is black', gpuProbes });
+      }
     }
 
     console.log(JSON.stringify({
@@ -313,6 +330,7 @@ async function main() {
       visualDiff: visualDiffSupported
         ? { supported: true, changedCameras: visualDiffCount }
         : { supported: false, note: 'canvas backing buffer never reached capture size — visual diff skipped' },
+      gpuProbes,
       outDir: OUT,
     }, null, 2));
   } finally {
