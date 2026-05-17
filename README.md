@@ -171,6 +171,32 @@ See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
 | MCP using wrong Chromium binary | `CHROME_BIN` env only read at MCP server startup | Restart the MCP server after changing `CHROME_BIN` / `PUPPETEER_EXECUTABLE_PATH`. Resolution: explicit arg → `CHROME_BIN` → `PUPPETEER_EXECUTABLE_PATH` → plain `chromium`. |
 | `capture_views` returns `Connection closed` on big elements | inline payload exceeded ~1 MB MCP message budget and crashed the server | Already auto-capped (default `inline=false`). Override budget via `TRISCOPE_INLINE_PAYLOAD_BUDGET=2097152` if you really need more inline content. |
 
+## Platform support
+
+**Linux**: primary target — everything is tested here (Wayland + X11
+sessions, both work with the X11 ozone flag on Wayland).
+
+**macOS**: should work — Node + Three + Vite + Chrome are all
+first-class on darwin. `defaultChromeBinary()` returns the standard
+`/Applications/Google Chrome.app` path; override with `CHROME_BIN` if
+you use Chrome Canary or Chromium directly.
+
+**Windows**: lightly supported, NOT regularly tested. Known gotchas:
+- `CHROME_BIN` defaults to `C:\Program Files\Google\Chrome\Application\chrome.exe`
+  on Win32; set the env var explicitly if Chrome lives elsewhere (Edge,
+  Brave, custom install path).
+- `npm`, `git`, `code` are `.cmd` scripts on Windows; we set
+  `shell: true` on spawn for those, so they resolve correctly.
+- The ocean-galleon smoke uses `pkill` for cleanup (Linux-only) and the
+  CI workflow assumes `xvfb` (also Linux-only). The smoke as written
+  will fail on Windows. PRs welcome.
+- TSL/WebGPU edits trigger a Vite force-reload that may print a path
+  with backslashes; the matching is case-insensitive and tolerates
+  both separators, so this is cosmetic.
+
+If you run into a Windows-only failure, please open an issue with the
+exact MCP tool call + Node error message — most fixes will be small.
+
 ## Roadmap to 0.1.0
 
 - [x] `@triscope/core` Element contract + harness + Vite plugin

@@ -39,12 +39,32 @@ function cdpClient(ws) {
   return call;
 }
 
+/**
+ * Locate a Chromium-family browser on disk. Resolution order matches
+ * puppeteer/playwright so users who already set one of these for their
+ * existing tooling don't have to duplicate config:
+ *   1. explicit arg
+ *   2. CHROME_BIN
+ *   3. PUPPETEER_EXECUTABLE_PATH
+ *   4. OS-typical defaults (Windows: Program Files\Google\Chrome; macOS:
+ *      /Applications/Google Chrome.app; Linux: PATH-relative `chromium`)
+ */
+function defaultChromeBinary(): string {
+  if (process.platform === 'win32') {
+    // Windows users normally install Chrome under Program Files. We don't
+    // touch the filesystem to verify — Chrome's own startup will surface
+    // an ENOENT clearly enough — but we pick the typical 64-bit path so
+    // most installs Just Work without setting CHROME_BIN.
+    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  }
+  if (process.platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+  return 'chromium';
+}
+
 export function createBrowserPool({
-  // Resolution order, matches puppeteer + playwright conventions so users
-  // who already set one of these for their existing tools don't have to
-  // duplicate config: explicit arg → CHROME_BIN → PUPPETEER_EXECUTABLE_PATH
-  // → plain `chromium` on PATH.
-  chromeBin = process.env.CHROME_BIN ?? process.env.PUPPETEER_EXECUTABLE_PATH ?? 'chromium',
+  chromeBin = process.env.CHROME_BIN ?? process.env.PUPPETEER_EXECUTABLE_PATH ?? defaultChromeBinary(),
   port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230),
 } = {}) {
   let chrome = null;

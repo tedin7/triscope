@@ -422,9 +422,15 @@ async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 't
  */
 const SNAPSHOT_TAG_PREFIX = 'triscope/snapshot/';
 
+// Windows portability: npm/git/code are .cmd scripts on Win32. child_process
+// .spawn refuses to invoke them without `shell: true`. On Linux/macOS the
+// real binaries are on PATH and shell isn't needed. We set the flag
+// conditionally everywhere we spawn one of those tools.
+const NEED_SHELL = process.platform === 'win32';
+
 function git(args: string[], cwd: string = process.cwd()): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: NEED_SHELL });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
@@ -678,7 +684,7 @@ async function openSelection({ editor }: { editor?: string }) {
   const usesGoto = /code\b/.test(cmd);
   const args = usesGoto ? ['--goto', `${absPath}:${line}:${col}`] : [`${absPath}:${line}:${col}`];
   return await new Promise<{ ok: boolean; cmd: string; args: string[]; file: string; line: number; col: number; stderr?: string }>((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true, shell: NEED_SHELL });
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (err) => reject(new Error(`failed to spawn ${cmd}: ${err.message}`)));
@@ -695,7 +701,7 @@ async function runSmoke({ element }) {
   return new Promise((resolve, reject) => {
     const args = ['smoke'];
     if (element) args.push(element);
-    const child = spawn('triscope', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('triscope', args, { stdio: ['ignore', 'pipe', 'pipe'], shell: NEED_SHELL });
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => (out += d));
