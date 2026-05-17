@@ -60,6 +60,11 @@ function readProjectName(cwd) {
 const DEV_URL = (process.env.TRISCOPE_URL ?? 'http://localhost:5173').replace(/\/$/, '');
 const PROJECT = readProjectName(process.cwd());
 const STATE_PATH = join(tmpdir(), `${PROJECT}-state.json`);
+// Inline image payload safety cap. MCP stdio JSON-RPC has practical message
+// size limits and ours exceeded them at 12 cameras × 1280×720 PNG base64 →
+// the server process got OOM-killed mid-response. Override with
+// TRISCOPE_INLINE_PAYLOAD_BUDGET (bytes) if you really need bigger.
+const INLINE_PAYLOAD_BUDGET = Number(process.env.TRISCOPE_INLINE_PAYLOAD_BUDGET ?? 1024 * 1024);
 
 // ---- Resilience: ring buffer of recent errors + process-level handlers --
 // A single rogue async exception used to crash the entire MCP server (the
@@ -539,8 +544,22 @@ export async function startServer() {
             inline: (args.inline ?? true) as boolean,
           });
           const { _base64ByCam, ...summary } = res;
-          const text = JSON.stringify(summary, null, 2);
-          if (!res.inline) return { content: [{ type: 'text', text }] };
+          // Cap inline payload: 12-camera scenes can produce ~20 MB of base64
+          // in a single JSON-RPC message over stdio, which OOM-kills the
+          // server process (no catch, no log — Claude Code then auto-respawns
+          // us and tools are temporarily unavailable). Auto-downgrade to
+          // file paths when over budget and surface a warning so the model
+          // knows to Read the files instead.
+          let inlineBytes = 0;
+          for (const b64 of Object.values(_base64ByCam) as string[]) inlineBytes += b64.length;
+          const inlineCapped = res.inline && inlineBytes > INLINE_PAYLOAD_BUDGET;
+          const finalInline = res.inline && !inlineCapped;
+          const summaryWithWarn = inlineCapped
+            ? { ...summary, inline: false, inlineCapped: true,
+                inlineWarning: `inline payload would have been ${(inlineBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.` }
+            : summary;
+          const text = JSON.stringify(summaryWithWarn, null, 2);
+          if (!finalInline) return { content: [{ type: 'text', text }] };
           const content: any[] = [{ type: 'text', text }];
           for (const cam of res.cameraOrder) {
             const data = _base64ByCam[cam];
@@ -690,11 +709,21 @@ export async function startServer() {
             .parse(args);
           const res = await captureMotion(parsed);
           const { _filmstripBase64, ...summary } = res;
+          // Same inline budget guard as capture_views — filmstrips can be
+          // even bigger (N frames per camera) so easier to blow the cap.
+          let filmstripBytes = 0;
+          for (const b64 of Object.values(_filmstripBase64) as string[]) filmstripBytes += b64.length;
+          const userWantsInline = parsed.inline !== false;
+          const filmstripCapped = userWantsInline && filmstripBytes > INLINE_PAYLOAD_BUDGET;
+          const finalInline = userWantsInline && !filmstripCapped;
           const text = JSON.stringify({
             ...summary,
+            ...(filmstripCapped
+              ? { inlineCapped: true, inlineWarning: `filmstrip payload would have been ${(filmstripBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.` }
+              : {}),
             hint: '<1 = static, >5 = visible motion, >20 = vigorous (in motionMagnitude)',
           }, null, 2);
-          if (parsed.inline === false) return { content: [{ type: 'text', text }] };
+          if (!finalInline) return { content: [{ type: 'text', text }] };
           const content: any[] = [{ type: 'text', text }];
           for (const cam of res.cameraOrder) {
             const data = _filmstripBase64[cam];
