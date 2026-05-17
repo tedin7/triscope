@@ -69,6 +69,48 @@ declare module 'three/webgpu' {
   export class Quaternion {
     [key: string]: any;
   }
+  export class Vector2 {
+    constructor(x?: number, y?: number);
+    x: number;
+    y: number;
+    set(x: number, y: number): this;
+  }
+  export class Matrix4 {
+    copy(m: Matrix4): this;
+    [key: string]: any;
+  }
+  export class BufferGeometry {
+    type: string;
+    index: { count: number } | null;
+    attributes: any;
+    [key: string]: any;
+  }
+  export class Mesh extends Object3D {
+    constructor(geometry?: BufferGeometry, material?: any);
+    geometry: BufferGeometry;
+    material: any;
+    isMesh: boolean;
+    matrix: Matrix4;
+    matrixAutoUpdate: boolean;
+    matrixWorld: Matrix4;
+    renderOrder: number;
+    frustumCulled: boolean;
+    updateMatrixWorld(force?: boolean): void;
+    raycast: (raycaster: Raycaster, intersects: any[]) => void;
+  }
+  export class Raycaster {
+    setFromCamera(coords: Vector2, camera: any): void;
+    intersectObjects(objects: Object3D[], recursive?: boolean): Array<{
+      object: Object3D;
+      distance: number;
+      point: Vector3;
+    }>;
+  }
+  export class MeshBasicNodeMaterial {
+    constructor(opts?: any);
+  }
+  export const MOUSE: { ROTATE: any; PAN: any; DOLLY: any };
+  export const TOUCH: { ROTATE: any; PAN: any; DOLLY_PAN: any; DOLLY_ROTATE: any };
   // Catch-all for everything else we don't enumerate.
   const _: any;
   export default _;

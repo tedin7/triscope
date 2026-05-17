@@ -13,6 +13,10 @@ export { knobDefault } from './types.js';
 export { runLab } from './harness.js';
 export type { LabOptions, LabHandle, GpuProbeStats } from './harness.js';
 
+export { installSourceTagPatch } from './source-tag.js';
+export type { SourceFrame, SourceTag } from './source-tag.js';
+export type { InspectSelection } from './inspect.js';
+
 export { mountEditor } from './editor.js';
 
 export { mountLabDom } from './lab/dom.js';

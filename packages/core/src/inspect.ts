@@ -1,0 +1,259 @@
+/**
+ * Inspect mode: solo-view + OrbitControls + raycaster picking + hover
+ * highlight + click-to-select. Writes selection into
+ * window.__TRISCOPE__.lastSelection so MCP read_telemetry .selection
+ * surfaces the source frame for the picked mesh.
+ *
+ * Activation: URL `?inspect=<element>&camera=<name>` (camera optional, falls
+ * back to the first declared camera). When inactive the harness behaves
+ * exactly as before — the grid view.
+ *
+ * Highlight is a single shared wireframe Mesh that borrows the hovered
+ * object's geometry (no per-frame allocation). Click-selection persists
+ * the same overlay with a different color until the next click.
+ */
+import * as THREE from 'three/webgpu';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import type { SourceTag } from './source-tag.js';
+
+export interface InspectSelection {
+  /** Camera the click came from. */
+  camera: string;
+  /** World-space hit position. */
+  point: [number, number, number];
+  /** Distance from camera to hit. */
+  distance: number;
+  /** Tag from the auto source-tag patch. */
+  source: SourceTag['source'];
+  stack: SourceTag['stack'];
+  type: string;
+  geometry?: string;
+  material?: SourceTag['material'];
+  /** Object name if author set Object3D.name. */
+  name?: string;
+  /** Object UUID — stable for the duration of the session. */
+  uuid: string;
+}
+
+export interface InspectMode {
+  active: boolean;
+  cameraName: string | null;
+  camera: THREE.PerspectiveCamera | null;
+  /** Renders the solo view for this frame. Call instead of grid renderAll(). */
+  render(): void;
+  /** Pull current hover/selection state. */
+  state(): { hover: InspectSelection | null; selection: InspectSelection | null };
+  dispose(): void;
+}
+
+export interface InspectInit {
+  renderer: THREE.WebGPURenderer;
+  scene: THREE.Scene;
+  cameras: Record<string, THREE.PerspectiveCamera>;
+  /** Element name used for the manifest match. */
+  elementName: string;
+  /** Canvas the user clicks on. */
+  canvas: HTMLCanvasElement;
+  /** Called when selection (click) changes — typically writes to telemetry. */
+  onSelectionChange: (sel: InspectSelection | null) => void;
+}
+
+/** Parse the URL for inspect activation. Returns null when off. */
+export function readInspectFromUrl(elementName: string): { camera?: string } | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const inspectParam = params.get('inspect');
+  if (inspectParam == null) return null;
+  // `?inspect`, `?inspect=1`, `?inspect=<el>` all activate.
+  // `?inspect=<el>` activates only when the el matches our element.
+  if (inspectParam === '' || inspectParam === '1' || inspectParam === elementName) {
+    return { camera: params.get('camera') ?? undefined };
+  }
+  return null;
+}
+
+export function createInspectMode(init: InspectInit & { cameraName?: string }): InspectMode {
+  const cameraName = init.cameraName ?? Object.keys(init.cameras)[0];
+  const camera = init.cameras[cameraName];
+  if (!camera) {
+    return {
+      active: false,
+      cameraName: null,
+      camera: null,
+      render: () => {},
+      state: () => ({ hover: null, selection: null }),
+      dispose: () => {},
+    };
+  }
+
+  // OrbitControls — right-button rotates per user request, left-button is
+  // reserved for picking (we wire click → raycast below). Scroll zooms.
+  const controls = new OrbitControls(camera, init.canvas);
+  controls.enablePan = true;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.mouseButtons = {
+    LEFT: null as any, // we handle left clicks for picking
+    MIDDLE: THREE.MOUSE.PAN,
+    RIGHT: THREE.MOUSE.ROTATE,
+  };
+  // OrbitControls' target defaults to (0,0,0); use the camera's declared target.
+  const t = camera.userData?.target;
+  if (Array.isArray(t) && t.length === 3) controls.target.set(t[0], t[1], t[2]);
+  controls.update();
+
+  // Highlight overlay: one wireframe mesh whose geometry is swapped to
+  // match the hovered/selected mesh. Bright green for hover, bright cyan
+  // for the persistent click-selection. `raycast` is a no-op so the
+  // overlay never grabs subsequent picks.
+  const hoverMat = new THREE.MeshBasicNodeMaterial({
+    color: 0x66ff66, wireframe: true, transparent: true, opacity: 0.9, depthTest: false,
+  });
+  const selectMat = new THREE.MeshBasicNodeMaterial({
+    color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.95, depthTest: false,
+  });
+  const overlay = new THREE.Mesh(new THREE.BufferGeometry(), hoverMat);
+  overlay.renderOrder = 999;
+  overlay.frustumCulled = false;
+  overlay.visible = false;
+  overlay.raycast = () => {}; // ignore in picking
+  init.scene.add(overlay);
+  const selectOverlay = new THREE.Mesh(new THREE.BufferGeometry(), selectMat);
+  selectOverlay.renderOrder = 1000;
+  selectOverlay.frustumCulled = false;
+  selectOverlay.visible = false;
+  selectOverlay.raycast = () => {};
+  init.scene.add(selectOverlay);
+
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let hoverHit: InspectSelection | null = null;
+  let selectionHit: InspectSelection | null = null;
+  let hoveredObject: THREE.Object3D | null = null;
+  let selectedObject: THREE.Object3D | null = null;
+
+  function eventToNdc(ev: MouseEvent): void {
+    const rect = init.canvas.getBoundingClientRect();
+    ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  function pick(): { obj: THREE.Object3D; distance: number; point: THREE.Vector3 } | null {
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(init.scene.children, true);
+    // Filter out overlays + lights + non-mesh helpers.
+    for (const h of hits) {
+      if (h.object === overlay || h.object === selectOverlay) continue;
+      if (!(h.object as THREE.Mesh).isMesh) continue;
+      return { obj: h.object, distance: h.distance, point: h.point };
+    }
+    return null;
+  }
+
+  function selectionFrom(hit: { obj: THREE.Object3D; distance: number; point: THREE.Vector3 }): InspectSelection {
+    const tag = (hit.obj.userData?.__tris as SourceTag | undefined) ?? null;
+    return {
+      camera: cameraName,
+      point: [hit.point.x, hit.point.y, hit.point.z],
+      distance: +hit.distance.toFixed(3),
+      source: tag?.source ?? null,
+      stack: tag?.stack ?? [],
+      type: tag?.type ?? hit.obj.constructor.name,
+      geometry: tag?.geometry,
+      material: tag?.material,
+      name: tag?.name ?? hit.obj.name ?? undefined,
+      uuid: hit.obj.uuid,
+    };
+  }
+
+  function syncOverlayTo(target: THREE.Mesh, which: THREE.Mesh): void {
+    which.geometry = target.geometry;
+    target.updateMatrixWorld(true);
+    which.matrix.copy(target.matrixWorld);
+    which.matrixAutoUpdate = false;
+    which.visible = true;
+  }
+
+  // mousemove → hover (RAF-throttled so we don't raycast 1000x/s).
+  let pendingHover = false;
+  function onMouseMove(ev: MouseEvent): void {
+    eventToNdc(ev);
+    if (pendingHover) return;
+    pendingHover = true;
+    requestAnimationFrame(() => {
+      pendingHover = false;
+      const hit = pick();
+      if (!hit) {
+        if (hoveredObject) {
+          hoveredObject = null;
+          hoverHit = null;
+          overlay.visible = false;
+        }
+        return;
+      }
+      if (hit.obj === hoveredObject) return;
+      hoveredObject = hit.obj;
+      hoverHit = selectionFrom(hit);
+      syncOverlayTo(hit.obj as THREE.Mesh, overlay);
+    });
+  }
+
+  function onMouseDown(ev: MouseEvent): void {
+    if (ev.button !== 0) return; // left only
+    eventToNdc(ev);
+    const hit = pick();
+    if (!hit) {
+      selectionHit = null;
+      selectedObject = null;
+      selectOverlay.visible = false;
+      init.onSelectionChange(null);
+      return;
+    }
+    selectedObject = hit.obj;
+    selectionHit = selectionFrom(hit);
+    syncOverlayTo(hit.obj as THREE.Mesh, selectOverlay);
+    init.onSelectionChange(selectionHit);
+  }
+
+  init.canvas.addEventListener('mousemove', onMouseMove);
+  init.canvas.addEventListener('mousedown', onMouseDown);
+
+  function render(): void {
+    controls.update();
+    // Keep overlays glued to their target's current world matrix in case
+    // the underlying mesh moved (animation, knob change).
+    if (selectedObject && selectionHit) {
+      selectedObject.updateMatrixWorld(true);
+      selectOverlay.matrix.copy(selectedObject.matrixWorld);
+    }
+    if (hoveredObject) {
+      hoveredObject.updateMatrixWorld(true);
+      overlay.matrix.copy(hoveredObject.matrixWorld);
+    }
+    init.renderer.setScissorTest(false);
+    const w = init.renderer.domElement.width / init.renderer.getPixelRatio();
+    const h = init.renderer.domElement.height / init.renderer.getPixelRatio();
+    init.renderer.setViewport(0, 0, w, h);
+    camera.aspect = w / Math.max(h, 1);
+    camera.updateProjectionMatrix();
+    init.renderer.clear();
+    init.renderer.render(init.scene, camera);
+  }
+
+  function dispose(): void {
+    init.canvas.removeEventListener('mousemove', onMouseMove);
+    init.canvas.removeEventListener('mousedown', onMouseDown);
+    init.scene.remove(overlay);
+    init.scene.remove(selectOverlay);
+    controls.dispose();
+  }
+
+  return {
+    active: true,
+    cameraName,
+    camera,
+    render,
+    state: () => ({ hover: hoverHit, selection: selectionHit }),
+    dispose,
+  };
+}

@@ -3,6 +3,12 @@ import type { Element, MountContext, MountHandle, CameraSpec, Knob, TriscopeEven
 import { knobDefault } from './types.js';
 import { mountEditor } from './editor.js';
 import { MotionProbeBuffer, type ProbeStats } from './motion-probe.js';
+import { installSourceTagPatch } from './source-tag.js';
+import { createInspectMode, readInspectFromUrl, type InspectMode, type InspectSelection } from './inspect.js';
+
+// Patched once at module load — every Object3D.add() across any element in
+// any lab gets the auto source-tag. Idempotent across multiple runLab().
+installSourceTagPatch();
 
 declare global {
   interface Window {
@@ -19,6 +25,8 @@ interface TriscopeGlobal {
   knobValues: Record<string, number | string | boolean>;
   setKnob: (key: string, value: number | string | boolean) => void;
   sampleTelemetry: () => Record<string, unknown>;
+  /** Inspect-mode selection — set by clicking a mesh in `?inspect=` mode. */
+  lastSelection?: InspectSelection | null;
   /** Capture one frame per named camera; returns base64 PNGs keyed by camera. */
   captureViews: () => Promise<Record<string, string>>;
   /**
@@ -223,6 +231,29 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   window.addEventListener('resize', resize);
   resize();
 
+  // Inspect mode (URL ?inspect=<el>&camera=<name>): solo full-canvas view
+  // with OrbitControls, click-picking, hover highlight. Falls back to the
+  // grid view when the URL param is absent or targets a different element.
+  let inspectMode: InspectMode | null = null;
+  let currentSelection: InspectSelection | null = null;
+  const inspectCfg = readInspectFromUrl(element.name);
+  if (inspectCfg) {
+    inspectMode = createInspectMode({
+      renderer,
+      scene,
+      cameras,
+      elementName: element.name,
+      canvas,
+      cameraName: inspectCfg.camera,
+      onSelectionChange: (sel) => {
+        currentSelection = sel;
+        if (typeof window !== 'undefined' && window.__TRISCOPE__) {
+          (window.__TRISCOPE__ as any).lastSelection = sel;
+        }
+      },
+    });
+  }
+
   function renderAll(): void {
     const n = cameraOrder.length;
     const cols = Math.ceil(Math.sqrt(n));
@@ -288,7 +319,8 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       }
     }
 
-    renderAll();
+    if (inspectMode?.active) inspectMode.render();
+    else renderAll();
 
     if (now - lastTelemetryT > telemetryIntervalMs) {
       lastTelemetryT = now;
@@ -332,6 +364,12 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       // Event ring buffer (cap 128). Drained per-frame via element.events();
       // shallow-copied here so downstream consumers see a stable snapshot.
       events: eventBuffer.slice(),
+      // Last clicked mesh in inspect mode (?inspect=<el>) — null when not
+      // in inspect mode or nothing was clicked. Read via MCP
+      // `read_telemetry .selection` so the model knows which file:line to
+      // edit when the user says "fix this".
+      selection: currentSelection,
+      inspectActive: !!inspectMode?.active,
     };
   }
 
