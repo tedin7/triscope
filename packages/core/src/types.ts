@@ -83,6 +83,28 @@ export interface Element {
    * anything dynamic the Element wants to quantify.
    */
   motionProbes?: Record<string, (handle: MountHandle, ctx: MountContext) => number>;
+  /**
+   * Per-frame discrete-event drain. The harness calls this every frame; the
+   * element returns events that occurred since the last call (typically by
+   * draining an internal queue). The harness appends them to a ring buffer
+   * (cap 128) and exposes them via `telemetry.events`. Use for one-shot
+   * signals like collisions, weapon fires, state transitions — anything the
+   * test script needs to verify a posteriori with `read_telemetry .events`.
+   *
+   * Implementation MUST drain (return + clear) each call: events returned
+   * twice will appear twice in the buffer.
+   */
+  events?: (handle: MountHandle, ctx: MountContext) => TriscopeEvent[];
+}
+
+/** Discrete event emitted by an Element. */
+export interface TriscopeEvent {
+  /** Timestamp in seconds. Should reuse `ctx.time.value` for sim-consistent ordering. */
+  timestamp: number;
+  /** Discriminator — caller-defined (e.g. 'fire' | 'splash' | 'impact'). */
+  type: string;
+  /** Optional opaque payload — anything JSON-serializable. */
+  payload?: Record<string, unknown>;
 }
 
 /** Default value extracted from a knob spec. Trigger knobs have no

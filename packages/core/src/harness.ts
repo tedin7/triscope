@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import type { Element, MountContext, MountHandle, CameraSpec, Knob } from './types.js';
+import type { Element, MountContext, MountHandle, CameraSpec, Knob, TriscopeEvent } from './types.js';
 import { knobDefault } from './types.js';
 import { mountEditor } from './editor.js';
 import { MotionProbeBuffer, type ProbeStats } from './motion-probe.js';
@@ -189,6 +189,12 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   const probeBuffers: Record<string, MotionProbeBuffer> = {};
   for (const k of probeKeys) probeBuffers[k] = new MotionProbeBuffer(120);
 
+  // Discrete-event ring buffer (cap 128). The harness drains element.events()
+  // each frame and appends to this buffer; sampleTelemetry surfaces it as
+  // `telemetry.events` so MCP read_telemetry .events can verify post-fact.
+  const EVENT_BUFFER_CAP = 128;
+  const eventBuffer: TriscopeEvent[] = [];
+
   function resize(): void {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
@@ -269,6 +275,19 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       }
     }
 
+    // Drain discrete events (cannon fires, collisions, etc.) into ring buffer.
+    if (element.events) {
+      try {
+        const drained = element.events(handle, ctx) ?? [];
+        for (const ev of drained) {
+          eventBuffer.push(ev);
+          if (eventBuffer.length > EVENT_BUFFER_CAP) eventBuffer.shift();
+        }
+      } catch {
+        /* event drain failures must not break the loop */
+      }
+    }
+
     renderAll();
 
     if (now - lastTelemetryT > telemetryIntervalMs) {
@@ -310,6 +329,9 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
       elements: {
         [element.name]: motion ? { ...elemTelemetry, motion } : elemTelemetry,
       },
+      // Event ring buffer (cap 128). Drained per-frame via element.events();
+      // shallow-copied here so downstream consumers see a stable snapshot.
+      events: eventBuffer.slice(),
     };
   }
 

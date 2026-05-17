@@ -6,6 +6,7 @@ export type {
   Knob,
   MountContext,
   MountHandle,
+  TriscopeEvent,
 } from './types.js';
 export { knobDefault } from './types.js';
 
