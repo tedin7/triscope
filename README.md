@@ -11,48 +11,80 @@ Triscope packages that loop so any new Three.js + WebGPU project can adopt
 it on day one — and so AI agents (Claude Code, others) have a stable CLI +
 MCP surface to drive the iteration.
 
-> **Status: pre-alpha.** Bootstrapping the monorepo. Nothing here works yet.
-> See [`docs/design.md`](./docs/design.md) for the design.
+> **Status**: the core harness (`@triscope/core`) and MCP server
+> (`@triscope/mcp`) are used in production by [water3d](https://github.com/tedin7/water3d).
+> The unit-test suite covers motion probes and the Vite telemetry plugin
+> (24 tests, vitest). A full end-to-end smoke (`examples/ocean-galleon`)
+> boots Vite + headed Chromium, validates fps + knob propagation +
+> WebGPU-canvas readback, and runs in CI under xvfb. Heading for **0.1.0**;
+> see [`ROADMAP`](#roadmap-to-010) below.
+
+## Quickstart
+
+Clone, install, and watch the reference galleon lab in a browser:
+
+```bash
+git clone https://github.com/tedin7/triscope.git
+cd triscope
+npm install
+npm run build --workspace=@triscope/core
+cd examples/ocean-galleon
+npm run dev      # opens at http://127.0.0.1:5173/
+```
+
+Move the knob sliders on the right; the 8-camera grid updates live. Knob
+state survives full-reload (TSL/material edits that can't HMR get a
+forced reload but keep your tuning).
+
+Run the headed-Chromium smoke that exercises the whole stack:
+
+```bash
+npm run smoke
+# → { ok: true, cameras: 8, baselineFps: ~60, afterFps: ~88,
+#     visualDiff: { supported: true, changedCameras: 6 } }
+```
 
 ## The shape
 
 ```
 triscope/
 ├── packages/
-│   ├── core/                @triscope/core      — runtime: Element contract,
-│   │                                              multi-camera lab harness,
-│   │                                              Vite telemetry plugin
-│   ├── cli/                 @triscope/cli       — `triscope` binary
-│   ├── mcp/                 @triscope/mcp       — MCP server for live AI control
-│   └── create-triscope/     npm init triscope   — scaffolder
+│   ├── core/                @triscope/core      runtime: Element contract,
+│   │                                            multi-camera lab harness,
+│   │                                            Vite telemetry plugin
+│   ├── cli/                 @triscope/cli       `triscope` binary
+│   ├── mcp/                 @triscope/mcp       MCP server for live AI control
+│   └── create-triscope/     npm init triscope   scaffolder (WIP)
 ├── examples/
-│   └── ocean-galleon/       reference scene: sea, sky, seafloor, ship
+│   └── ocean-galleon/       runnable reference lab
 └── docs/                    design + recipes
 ```
 
-## The iteration loop (target)
+## The iteration loop
 
 ```
-  AI edits  src/elements/ship.ts          ("drop mastTilt 0.2 → 0.1")
+  Human / AI edits  src/element.ts             ("drop windPressure 1.6 → 0.6")
      │
-     ▼  Vite HMR
-  browser remounts ship in composed scene lab (N cameras)
+     ▼  Vite HMR (or full-reload for TSL materials)
+  browser remounts the element in the lab grid (N cameras)
      │
      ▼  every 500 ms
   telemetry POST /__state ─► /tmp/<proj>-state.json
      │
      ▼  AI calls (CLI or MCP)
-  triscope solo ship                          (isolate, swap to ship cameras)
-  triscope capture-views ship                 (N angle PNGs in one call)
-  triscope state .elements.ship               (numeric state)
-  triscope ref diff ship deck-close           (vs stored reference photo)
+  triscope state .elements.ship                     numeric state
+  mcp__triscope__set_knob ship windPressure 1.6     live knob
+  mcp__triscope__capture_views ship                 N-angle PNGs in one call
+  mcp__triscope__diff_reference ship deck-close     vs stored reference photo
      │
      ▼  AI judges per-camera, edits, repeats
-  triscope snapshot ship-mast-pass            (cheap visual checkpoint)
-  triscope smoke ship                         (CI/sign-off gate)
+  triscope smoke ship                               CI/sign-off gate
 ```
 
-## Element contract (target)
+## Element contract
+
+The whole framework hangs off one TypeScript interface
+([`packages/core/src/types.ts`](./packages/core/src/types.ts)):
 
 ```ts
 import type { Element } from '@triscope/core';
@@ -60,20 +92,84 @@ import * as THREE from 'three/webgpu';
 
 export const ship: Element = {
   name: 'ship',
-  mount: ({ parent, ctx }) => { /* … */ },
+  mount: ({ parent, ctx }) => { /* add meshes, return { root, dispose, userData } */ },
   bounds: { min: [-15, -3, -4], max: [15, 12, 4] },
-  cameras: { bow: { position: [25, 6, 0], target: [0, 4, 0] }, /* … */ },
-  knobs: {
-    mastTilt:  { type: 'number', min: -0.2, max: 0.2, default: 0 },
-    sailColor: { type: 'color', default: '#d8c89a' },
+  cameras: {
+    bow:  { position: [25, 6, 0], target: [0, 4, 0] },
+    stern:{ position: [-25, 6, 0], target: [0, 4, 0] },
+    // 6+ more — each becomes one pane in the lab grid
   },
-  onKnob: (handle, key, value) => { /* live update */ },
-  telemetry: (handle, ctx) => ({ triangles: handle.root.userData.triCount }),
+  knobs: {
+    windPressure: { type: 'number', min: 0, max: 2, default: 0.6 },
+    sailColor:    { type: 'color', default: '#d8c89a' },
+  },
+  onKnob: (handle, key, value) => { /* live uniform / state update */ },
+  telemetry: (handle, ctx) => ({ triangles: handle.userData.triCount }),
+  motionProbes: {
+    // sampled every frame into a 120-pt ring buffer; harness publishes
+    // peakToPeak / dominantFreqHz / latest under telemetry.elements.<name>.motion
+    sailFlutter: (handle, ctx) =>
+      handle.userData.uWindPressure.value * Math.sin(ctx.time.value * 4.3),
+  },
 };
 ```
 
 Composition is just an element that mounts other elements. Same contract
 everywhere.
+
+## `window.__TRISCOPE__` (browser global)
+
+The harness publishes this once `runLab()` resolves. CDP-driven tools and
+in-page console scripts use it as the single entry point.
+
+| Member | Type | Notes |
+|---|---|---|
+| `cameras` | `Record<string, THREE.PerspectiveCamera>` | All Element-declared cameras, by name |
+| `knobValues` | `Record<string, number \| string \| boolean>` | Live knob state, mirrors `/__knob/current` |
+| `setKnob(key, value)` | `void` | Apply a knob change in-page (also flows to the editor UI) |
+| `sampleTelemetry()` | `Record<string, unknown>` | Same payload as `POST /__state`, on demand |
+| `captureViews()` | `Promise<Record<string, base64PNG>>` | One PNG per camera, full-canvas render. **Only viable WebGPU readback path** — `canvas.toDataURL` and `Page.captureScreenshot` both miss the surface (gpuweb/gpuweb#1781). |
+| `captureMotionFrames(cam, { frames, dt, mode })` | `Promise<base64PNG[]>` | `mode='time'` pauses RAF and steps time forward deterministically (byte-identical re-captures); `mode='real'` samples at wall-clock dt |
+
+## MCP integration (for Claude Code & friends)
+
+Install once per project:
+
+```bash
+cd <your-triscope-project>
+npx triscope mcp install            # adds .mcp.json
+```
+
+The MCP server exposes: `list_elements`, `read_telemetry`, `set_knob`,
+`capture_views`, `capture_motion`, `set_reference[_motion]`,
+`diff_reference[_motion]`, `run_smoke`, `health`. All talk to the running
+dev server (`http://localhost:5173`) and a persistent Chromium pool.
+
+See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `captureViews()` returns 300×150 PNGs | canvas never resized | Call after first `resize()` tick (harness handles it; smoke waits for `fps > 1` telemetry) |
+| Two consecutive `Page.captureScreenshot` byte-identical | WebGPU surface lives outside the page compositor | Use `__TRISCOPE__.captureViews()` instead |
+| `WebGPU Device Lost: Device was destroyed` at teardown | Chrome / vite torn down by smoke `finally` | Cosmetic, ignore |
+| `boot failed: navigator.gpu is unavailable` | Headless Chrome without Vulkan flags | Run headed under xvfb (see `examples/ocean-galleon/smoke.mjs`) |
+| Smoke `fps: 0` baseline | Reading state file before harness wrote first tick | Wait for `fps > 1` in a poll loop (smoke does this) |
+| Vite "Port 5173 in use" in smoke | Another dev server already running | The smoke uses a random port 5300-5400 with `--strictPort` |
+
+## Roadmap to 0.1.0
+
+- [x] `@triscope/core` Element contract + harness + Vite plugin
+- [x] `@triscope/mcp` capture/diff/knob/telemetry tools + supervisor + health
+- [x] vitest suite (motion probes + Vite plugin, 24 tests)
+- [x] `examples/ocean-galleon` runnable from a fresh clone
+- [x] CI: matrix node 20/22 + real ocean-galleon smoke under xvfb
+- [ ] `triscope init` (wired to `create-triscope`)
+- [ ] `@triscope/mcp` ported to TypeScript with zod-validated tool args
+- [ ] GPU readback probes (luminance, dynamic range) on captures
+- [ ] Snapshot/restore via git tags (per [`docs/design.md`](./docs/design.md))
+- [ ] npm publish + tagged release
 
 ## License
 
