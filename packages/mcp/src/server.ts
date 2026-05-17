@@ -402,6 +402,135 @@ async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 't
  * range to ~0.7% — plenty for shader tuning. Robust to noise because we
  * use SSIM (perceptual) rather than meanAbsDiff (pixel-level).
  */
+/**
+ * Snapshot / restore via git tags.
+ *
+ * A snapshot freezes a moment in the iteration loop: the git commit you
+ * were on + the knob values applied at that moment. Restoring checks out
+ * that commit and re-posts the knobs, so a careful tuning state can be
+ * recovered after a risky shader rewrite. Tags live under
+ * `triscope/snapshot/<name>` so they don't pollute the user's namespace.
+ *
+ * Guard rails:
+ *   - snapshot refuses on a dirty working tree — the commit you'd point
+ *     at wouldn't actually contain your in-progress edits, so the
+ *     restore would silently revert them.
+ *   - restore refuses on a dirty WT too, for the same reason in reverse.
+ *   - PNG refs are intentionally not bundled into the snapshot for the
+ *     MVP — they live next to the project as before (refs/<el>/<cam>.png)
+ *     and are recovered with the git checkout. Keeping the JSON small.
+ */
+const SNAPSHOT_TAG_PREFIX = 'triscope/snapshot/';
+
+function git(args: string[], cwd: string = process.cwd()): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', reject);
+    child.on('exit', (code) => resolve({ code: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }));
+  });
+}
+
+async function assertCleanWt(cwd: string, action: string): Promise<void> {
+  const status = await git(['status', '--porcelain'], cwd);
+  if (status.stdout.length > 0) {
+    throw new Error(
+      `${action} refuses to run with a dirty working tree. Commit, stash, or revert your in-progress edits first.\nDirty paths:\n${status.stdout.split('\n').slice(0, 10).join('\n')}`
+    );
+  }
+}
+
+async function fetchPersistedKnobs(): Promise<Record<string, Record<string, unknown>>> {
+  try {
+    const r = await fetch(`${DEV_URL}/__knob/current`);
+    if (!r.ok) return {};
+    return (await r.json()) as Record<string, Record<string, unknown>>;
+  } catch { return {}; }
+}
+
+async function snapshot({ name, message }: { name: string; message?: string }) {
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    throw new Error(`snapshot name must be [A-Za-z0-9._-]+ (got "${name}")`);
+  }
+  const cwd = process.cwd();
+  await assertCleanWt(cwd, 'snapshot');
+  const head = await git(['rev-parse', 'HEAD'], cwd);
+  if (head.code !== 0) throw new Error(`git rev-parse failed: ${head.stderr}`);
+  const knobs = await fetchPersistedKnobs();
+  const payload = {
+    name,
+    createdAt: new Date().toISOString(),
+    commit: head.stdout,
+    message: message ?? '',
+    knobs, // { [element]: { [knobKey]: value, ... } }
+  };
+  const tagName = `${SNAPSHOT_TAG_PREFIX}${name}`;
+  // Annotated tag stores the JSON payload as the tag message — no extra
+  // working-tree files, no rebase noise, easy to list+read with `git tag`.
+  const tagBody = `triscope snapshot v1\n\n${JSON.stringify(payload, null, 2)}`;
+  const tag = await git(['tag', '-a', tagName, '-m', tagBody, payload.commit], cwd);
+  if (tag.code !== 0) {
+    if (tag.stderr.includes('already exists')) {
+      throw new Error(`snapshot "${name}" already exists. Pick a different name or delete the existing tag: git tag -d ${tagName}`);
+    }
+    throw new Error(`git tag failed: ${tag.stderr}`);
+  }
+  return { ok: true, tag: tagName, ...payload, hint: 'Restore later with mcp__triscope__restore name=' + name };
+}
+
+async function listSnapshots() {
+  const cwd = process.cwd();
+  const list = await git(['tag', '--list', `${SNAPSHOT_TAG_PREFIX}*`, '--format=%(refname:short)|%(creatordate:iso)|%(subject)'], cwd);
+  if (list.code !== 0) throw new Error(`git tag --list failed: ${list.stderr}`);
+  const snapshots: Array<{ name: string; tag: string; created: string; subject: string }> = [];
+  for (const line of list.stdout.split('\n').filter(Boolean)) {
+    const [tag, created, ...subj] = line.split('|');
+    snapshots.push({
+      name: tag.replace(SNAPSHOT_TAG_PREFIX, ''),
+      tag,
+      created,
+      subject: subj.join('|'),
+    });
+  }
+  return { count: snapshots.length, snapshots };
+}
+
+async function restore({ name }: { name: string }) {
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error(`invalid snapshot name`);
+  const cwd = process.cwd();
+  await assertCleanWt(cwd, 'restore');
+  const tagName = `${SNAPSHOT_TAG_PREFIX}${name}`;
+  const show = await git(['cat-file', '-p', tagName], cwd);
+  if (show.code !== 0) throw new Error(`snapshot "${name}" not found (tag ${tagName})`);
+  // Annotated tag object body: header lines, blank line, then the message
+  // we wrote in snapshot(). Find the JSON block.
+  const bodyMatch = show.stdout.match(/\n\n([\s\S]*)/);
+  const body = bodyMatch?.[1] ?? '';
+  const jsonStart = body.indexOf('{');
+  if (jsonStart < 0) throw new Error(`snapshot ${name} has no JSON payload`);
+  let payload: any;
+  try { payload = JSON.parse(body.slice(jsonStart)); }
+  catch { throw new Error(`snapshot ${name} payload is not valid JSON`); }
+  // Checkout the commit the snapshot pointed at (detached HEAD — safe,
+  // user can create a branch from there if they want to keep working).
+  const checkout = await git(['checkout', payload.commit], cwd);
+  if (checkout.code !== 0) throw new Error(`git checkout ${payload.commit} failed: ${checkout.stderr}`);
+  // Re-post knobs. The harness will pick them up via its 100ms poll once
+  // it next mounts (or immediately if already mounted on the same commit).
+  const updates: Array<{ element: string; key: string; value: unknown }> = [];
+  for (const [elName, kv] of Object.entries(payload.knobs ?? {})) {
+    for (const [k, v] of Object.entries(kv as Record<string, unknown>)) {
+      updates.push({ element: elName, key: k, value: v });
+    }
+  }
+  if (updates.length > 0) {
+    try { await setKnob({ updates }); } catch { /* dev server may be down — knobs will re-hydrate on next runLab */ }
+  }
+  return { ok: true, tag: tagName, restoredCommit: payload.commit, knobUpdates: updates.length, payload };
+}
+
 async function autoTune({
   element, knob, range, target_camera, max_iterations = 12, labUrl,
 }: {
@@ -763,6 +892,39 @@ const tools = [
     },
   },
   {
+    name: 'snapshot',
+    description:
+      'Freeze the current tuning state as a git tag (triscope/snapshot/<name>). Stores the HEAD commit + every persisted knob value across all elements, as JSON inside the tag\'s annotated message — no working-tree files written, no rebase noise. Refuses on a dirty working tree (would silently lose the in-progress edits on restore).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Snapshot name. Must match [A-Za-z0-9._-]+.' },
+        message: { type: 'string', description: 'Optional human note for `git show triscope/snapshot/<name>`.' },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'restore',
+    description:
+      'Restore a snapshot: git checkout the recorded commit and re-post every knob value via /__knob. Refuses on a dirty working tree. Leaves HEAD detached — branch from there if you want to keep iterating.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Snapshot name (matches `mcp__triscope__list_snapshots`).' },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'list_snapshots',
+    description:
+      'List every triscope snapshot tag in this repo (name, creation date, message subject). Use to find which one to restore.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'auto_tune',
     description:
       'Find the knob value that maximises SSIM (perceptual similarity) between the captured view and a stored reference image, using derivative-free golden-section search. Requires a prior set_reference for (element, target_camera). Iterations: post_knob → wait → captureViews → diff_reference. Use to converge a single shader parameter on a reference photo without manual bisection.',
@@ -1067,6 +1229,19 @@ export async function startServer() {
           }).parse(args);
           return jsonResult(await openSelection(parsed));
         }
+        case 'snapshot': {
+          const parsed = z.object({
+            name: z.string(),
+            message: z.string().optional(),
+          }).parse(args);
+          return jsonResult(await snapshot({ name: parsed.name, message: parsed.message }));
+        }
+        case 'restore': {
+          const parsed = z.object({ name: z.string() }).parse(args);
+          return jsonResult(await restore({ name: parsed.name }));
+        }
+        case 'list_snapshots':
+          return jsonResult(await listSnapshots());
         case 'auto_tune': {
           const parsed = z.object({
             element: z.string(),

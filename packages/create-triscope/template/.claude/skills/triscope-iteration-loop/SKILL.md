@@ -133,6 +133,76 @@ turn shows `p2p≈0` for a probe that was non-zero before, you broke motion.
 To enable: copy the `"hooks"` block from `.claude/hooks.example.json` into
 your `.claude/settings.local.json`.
 
+## Inspect mode: click-to-select sub-meshes (no grep)
+
+Open a lab with `?inspect=<element>` and the harness flips to a single
+full-canvas camera with OrbitControls. Right-drag to orbit, scroll to
+zoom, **left-click on a part of the mesh** to lock a selection. The
+selection lands in `telemetry.selection` with the *exact source file
+and line* where that mesh was added to the scene — no grep needed.
+
+**From chat:** "ispeziona la nave" → Claude calls
+`mcp__triscope__inspect element=ship`. The running browser flips into
+inspect mode. The user clicks a sail; the next message has
+`selection.source = { file: 'PirateShipMesh.ts', line: 1415, ... }`.
+
+**Open the file at line:** `mcp__triscope__open_selection` reads
+`telemetry.selection.source` and spawns `code --goto file:line:col` (or
+honors $EDITOR). Use after the user says "open this" / "show me the
+code". Sub-second: editor jumps to the right spot.
+
+How it works without code changes: triscope monkey-patches
+`Object3D.prototype.add` at runtime and tags every added object with
+the user-code stack frame from `new Error().stack`. Element authors do
+not modify their code — existing meshes get tagged on the next reload.
+Vite source-maps make the frames resolve to original `.ts` files in
+dev. The selection survives full-reload via localStorage (matched by
+file:line, not Mesh UUID).
+
+## Auto-tune: converge a knob on a reference
+
+When you have a stored reference image for `(element, target_camera)`
+and want to find the knob value that matches it visually:
+
+```
+mcp__triscope__auto_tune element=ship knob=windPressure
+                          range=[0,2] target_camera=bow max_iterations=12
+```
+
+Golden-section search over the range, maximising SSIM (perceptual
+similarity) against the reference. Each iteration: set_knob → 800ms
+wait → captureViews → diff_reference. Converges to ~0.7% of the range
+in 12 iters. Returns best knob value, final SSIM, full history. Leaves
+the lab at the converged value so you see the result.
+
+SSIM > meanAbsDiff as the objective: pixel-level diff chases anti-
+aliasing noise and rewards "darken everything" as fake convergence;
+SSIM tracks actual structural match.
+
+## Snapshot / restore: cheap rollback via git tags
+
+When a tuning pass lands somewhere good and you want to checkpoint
+before a risky rewrite:
+
+```
+mcp__triscope__snapshot name=ship-mast-pass-v3 message="happy w/ sail bulge"
+```
+
+Refuses on a dirty WT (would silently lose your in-progress edits on
+restore). Otherwise creates an annotated tag `triscope/snapshot/<name>`
+whose message stores: HEAD commit + every persisted knob value across
+all elements, as JSON. No working-tree files written, no rebase noise.
+
+Restore later:
+```
+mcp__triscope__restore name=ship-mast-pass-v3
+```
+Checks out the commit (detached HEAD — branch from there if you want
+to keep iterating) and re-posts every knob via `/__knob`. The live lab
+snaps back to the recorded state within ~100 ms.
+
+List what you have: `mcp__triscope__list_snapshots`.
+
 ## See also
 
 - [[threejs-telemetry-sink]] — the read-pixel-into-JSON pattern triscope is built on.
