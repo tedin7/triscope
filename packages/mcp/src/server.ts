@@ -33,8 +33,9 @@ import {
   setReference, diffReference, refsPath,
   composeFilmstrip, motionMagnitudeFromFrames,
   setReferenceMotion, diffReferenceMotion, refsMotionPaths,
-} from './refs.mjs';
-import { createBrowserPool } from './browser.mjs';
+} from './refs.js';
+import { createBrowserPool } from './browser.js';
+import { createLogger } from './logger.js';
 
 const browserPool = createBrowserPool();
 const shutdown = () => browserPool.dispose();
@@ -67,11 +68,12 @@ const STATE_PATH = join(tmpdir(), `${PROJECT}-state.json`);
 // individual tool failures stay isolated from the server lifecycle.
 const SERVER_START_TIME = Date.now();
 const RECENT_ERRORS_CAP = 16;
-const recentErrors = [];
-function recordError(source, err) {
-  const msg = `[${new Date().toISOString()}] ${source}: ${err?.stack ?? err?.message ?? String(err)}`;
-  // eslint-disable-next-line no-console
-  console.error('[triscope-mcp]', msg);
+const recentErrors: string[] = [];
+const logger = createLogger(PROJECT);
+function recordError(source: string, err: unknown) {
+  const detail = (err as any)?.stack ?? (err as any)?.message ?? String(err);
+  const msg = `[${new Date().toISOString()}] ${source}: ${detail}`;
+  logger.error(source, String((err as any)?.message ?? err), { stack: (err as any)?.stack });
   recentErrors.push(msg);
   if (recentErrors.length > RECENT_ERRORS_CAP) recentErrors.shift();
 }
@@ -89,7 +91,7 @@ function applyPath(data, path) {
   return cur;
 }
 
-async function fetchManifest() {
+async function fetchManifest(): Promise<any> {
   try {
     const r = await fetch(`${DEV_URL}/__manifest`);
     if (!r.ok) return null;
@@ -121,7 +123,7 @@ function absolutize(maybePath) {
   return `${DEV_URL}${maybePath.startsWith('/') ? '' : '/'}${maybePath}`;
 }
 
-async function resolveLabUrl({ element, labUrl }) {
+async function resolveLabUrl({ element, labUrl }: { element?: string; labUrl?: string }): Promise<string> {
   // 1. Explicit arg wins.
   if (labUrl) return absolutize(labUrl);
   if (!element) return DEV_URL;
@@ -166,7 +168,7 @@ async function setKnob(payload) {
   return { ok: true, count: Array.isArray(payload?.updates) ? payload.updates.length : 1 };
 }
 
-async function captureViews({ element, labUrl, inline = true }) {
+async function captureViews({ element, labUrl, inline = true }: { element?: string; labUrl?: string; inline?: boolean }) {
   // Persistent Chromium: first call cold-starts (~3s), subsequent calls
   // reuse the same browser/page and just navigate if the URL changed.
   const target = await resolveLabUrl({ element, labUrl });
@@ -182,7 +184,12 @@ async function captureViews({ element, labUrl, inline = true }) {
   });
   const views = result.result.result.value;
   if (!views || typeof views !== 'object') {
-    throw new Error('captureViews returned an empty result');
+    throw new Error(
+      `captureViews returned no images for element="${element ?? '(scene)'}" at ${target}. ` +
+      `Common causes: (1) the lab page hasn't finished mounting (window.__TRISCOPE__ missing); ` +
+      `(2) the Element has zero declared cameras; (3) WebGPU canvas readback is failing on this ` +
+      `Chrome build — confirm with capture_motion or by opening ${target} in your browser.`
+    );
   }
   const written = {};
   const base64ByCam = {};
@@ -212,7 +219,7 @@ async function captureViews({ element, labUrl, inline = true }) {
   };
 }
 
-async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUrl }) {
+async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUrl }: any): Promise<string[]> {
   // Like captureMotion but for ONE camera, returns the raw base64 PNG frames.
   // Used internally by set_reference_motion + diff_reference_motion.
   const target = await resolveLabUrl({ element, labUrl });
@@ -229,7 +236,7 @@ async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUr
   return frames_.map((du) => du.replace(/^data:image\/png;base64,/, ''));
 }
 
-async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 'time', labUrl }) {
+async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 'time', labUrl }: any) {
   // Multi-frame capture per camera through the persistent browser pool.
   // Returns per-camera filmstrip base64 + motionMagnitude scalar + telemetry.
   const target = await resolveLabUrl({ element, labUrl });
@@ -507,14 +514,14 @@ export async function startServer() {
         }
         case 'capture_views': {
           const res = await captureViews({
-            element: args.element,
-            labUrl: args.labUrl,
-            inline: args.inline ?? true,
+            element: args.element as string | undefined,
+            labUrl: args.labUrl as string | undefined,
+            inline: (args.inline ?? true) as boolean,
           });
           const { _base64ByCam, ...summary } = res;
           const text = JSON.stringify(summary, null, 2);
           if (!res.inline) return { content: [{ type: 'text', text }] };
-          const content = [{ type: 'text', text }];
+          const content: any[] = [{ type: 'text', text }];
           for (const cam of res.cameraOrder) {
             const data = _base64ByCam[cam];
             if (!data) continue;
@@ -531,7 +538,7 @@ export async function startServer() {
               base64: z.string().optional(),
             })
             .parse(args);
-          const result = setReference({ cwd: process.cwd(), ...parsed });
+          const result = setReference({ cwd: process.cwd(), ...parsed } as any);
           return jsonResult(result);
         }
         case 'diff_reference': {
@@ -622,7 +629,7 @@ export async function startServer() {
             };
           }
           // Inherit frame/dt/mode from saved metadata so the comparison is fair.
-          let savedMeta = {};
+          let savedMeta: any = {};
           try { savedMeta = existsSync(meta) ? JSON.parse(readFileSync(meta, 'utf8')) : {}; } catch {}
           const opts = {
             frames: parsed.frames ?? savedMeta.frames ?? 6,
@@ -668,7 +675,7 @@ export async function startServer() {
             hint: '<1 = static, >5 = visible motion, >20 = vigorous (in motionMagnitude)',
           }, null, 2);
           if (parsed.inline === false) return { content: [{ type: 'text', text }] };
-          const content = [{ type: 'text', text }];
+          const content: any[] = [{ type: 'text', text }];
           for (const cam of res.cameraOrder) {
             const data = _filmstripBase64[cam];
             if (data) content.push({ type: 'image', data, mimeType: 'image/png' });
@@ -681,7 +688,7 @@ export async function startServer() {
           try {
             const r = await fetch(`${DEV_URL}/__manifest`, { signal: AbortSignal.timeout(2000) });
             if (r.ok) {
-              const m = await r.json();
+              const m: any = await r.json();
               devServerOk = true;
               manifestElements = Object.keys(m?.elements ?? {});
             }
@@ -698,6 +705,7 @@ export async function startServer() {
               heapUsed: +(mem.heapUsed / 1048576).toFixed(1),
               external: +(mem.external / 1048576).toFixed(1),
             },
+            logPath: logger.logPath,
             recentErrors,
           });
         }
@@ -706,7 +714,8 @@ export async function startServer() {
         default:
           return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }
-    } catch (err) {
+    } catch (err: any) {
+      recordError(`tool:${name}`, err);
       return {
         isError: true,
         content: [{ type: 'text', text: `${name} failed: ${err?.message ?? String(err)}` }],

@@ -30,7 +30,7 @@ export function refsMotionPaths(cwd, element, camera) {
   };
 }
 
-export function setReference({ cwd, element, camera, path, base64 }) {
+export function setReference({ cwd, element, camera, path, base64 }: { cwd: string; element: string; camera: string; path?: string; base64?: string }) {
   if (!element || !camera) throw new Error('element and camera are required');
   let bytes;
   if (path) {
@@ -110,7 +110,7 @@ function meanAbsDiff(a, b) {
   return +(sum / pixels).toFixed(2);
 }
 
-export function composeFilmstrip(frameBase64s, opts = {}) {
+export function composeFilmstrip(frameBase64s: string[], opts: { sep?: number } = {}): Buffer {
   // Tile N frames horizontally with a 2-px black separator. Each frame is
   // resized to match the smallest source height (so payload stays bounded
   // even if frames are e.g. 1600x900 each). Returns a PNG Buffer.

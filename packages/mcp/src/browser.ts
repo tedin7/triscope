@@ -40,7 +40,11 @@ function cdpClient(ws) {
 }
 
 export function createBrowserPool({
-  chromeBin = process.env.CHROME_BIN ?? 'chromium',
+  // Resolution order, matches puppeteer + playwright conventions so users
+  // who already set one of these for their existing tools don't have to
+  // duplicate config: explicit arg → CHROME_BIN → PUPPETEER_EXECUTABLE_PATH
+  // → plain `chromium` on PATH.
+  chromeBin = process.env.CHROME_BIN ?? process.env.PUPPETEER_EXECUTABLE_PATH ?? 'chromium',
   port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230),
 } = {}) {
   let chrome = null;
