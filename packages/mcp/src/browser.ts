@@ -85,6 +85,17 @@ export function createBrowserPool({
     currentUrl = initialUrl;
   }
 
+  function harnessNotMountedError(url: string) {
+    return new Error(
+      `window.__TRISCOPE__ did not mount within 10s on ${url}. ` +
+      `Common causes: ` +
+      `(1) the page never loaded — confirm the dev server is up and the URL is right (open it in a real browser tab); ` +
+      `(2) WebGPU init failed — Linux Chrome needs --enable-unsafe-webgpu and either xvfb or a real display; ` +
+      `(3) runLab() threw before mounting — check the #boot overlay text or the page console; ` +
+      `(4) the lab page doesn't call runLab() at all — verify its entry script imports @triscope/core.`
+    );
+  }
+
   async function navigateIfNeeded(url) {
     if (url === currentUrl) return;
     await call('Page.navigate', { url });
@@ -100,7 +111,7 @@ export function createBrowserPool({
       } catch {}
       await wait(200);
     }
-    throw new Error(`window.__TRISCOPE__ did not become available within 10s on ${url}`);
+    throw harnessNotMountedError(url);
   }
 
   async function waitForHarness() {
@@ -112,7 +123,7 @@ export function createBrowserPool({
       if (probe.result.result.value) return;
       await wait(250);
     }
-    throw new Error('window.__TRISCOPE__ did not become available within 10s');
+    throw harnessNotMountedError(currentUrl ?? '(initial page)');
   }
 
   async function isAlive() {

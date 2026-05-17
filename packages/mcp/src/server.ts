@@ -184,11 +184,13 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
   });
   const views = result.result.result.value;
   if (!views || typeof views !== 'object') {
+    // By the time we get here browserPool.getPage has already proven the
+    // harness mounted, so an empty result means the Element declared zero
+    // cameras OR captureViews itself errored without returning.
     throw new Error(
       `captureViews returned no images for element="${element ?? '(scene)'}" at ${target}. ` +
-      `Common causes: (1) the lab page hasn't finished mounting (window.__TRISCOPE__ missing); ` +
-      `(2) the Element has zero declared cameras; (3) WebGPU canvas readback is failing on this ` +
-      `Chrome build — confirm with capture_motion or by opening ${target} in your browser.`
+      `Most likely the Element declares no cameras — check the manifest: ` +
+      `mcp__triscope__list_elements.`
     );
   }
   const written = {};
@@ -207,12 +209,25 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
   });
   const sample = JSON.parse(telemetry.result.result.value);
 
+  // captureViews() populates window.__TRISCOPE__.lastGpuProbes as a side
+  // effect (per-camera luminance/p5/p95/dynamicRange). Surface it in the
+  // tool response so consumers don't have to do a second CDP eval.
+  let gpuProbes = null;
+  try {
+    const probesResp = await call('Runtime.evaluate', {
+      expression: 'JSON.stringify(window.__TRISCOPE__.lastGpuProbes ?? null)',
+      returnByValue: true,
+    });
+    gpuProbes = JSON.parse(probesResp.result.result.value);
+  } catch { /* old core (pre-GPU-probes) — leave null */ }
+
   return {
     element: element ?? null,
     dir: outDir,
     files: written,
     cameraOrder: Object.keys(written),
     telemetry: sample,
+    gpuProbes,
     inline,
     captureMs: Date.now() - t0,
     _base64ByCam: base64ByCam,
@@ -496,6 +511,11 @@ export async function startServer() {
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
+    // One info log per tool entry (success and failure both leave a trail
+    // — combined with the error log on catch, every invocation is in
+    // /tmp/<project>-mcp.log).
+    const toolStart = Date.now();
+    logger.info(`tool:${name}`, 'invoked', { args });
     try {
       switch (name) {
         case 'list_elements':
@@ -715,6 +735,7 @@ export async function startServer() {
           return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }
     } catch (err: any) {
+      logger.info(`tool:${name}`, 'failed', { ms: Date.now() - toolStart });
       recordError(`tool:${name}`, err);
       return {
         isError: true,
