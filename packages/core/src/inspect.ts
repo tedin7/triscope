@@ -45,10 +45,34 @@ function buildParentChain(obj: THREE.Object3D): string[] {
   const chain: string[] = [];
   let cur: THREE.Object3D | null = obj;
   while (cur) {
-    chain.unshift(cur.name || (cur.constructor?.name ?? '?'));
+    chain.unshift(describeObj(cur));
     cur = (cur as any).parent ?? null;
   }
   return chain;
+}
+
+/**
+ * Compact human-readable description of an Object3D used in parentChain
+ * and clipboard formats. Prefers the author's `.name` (most specific);
+ * falls back to a self-describing shorthand like `Mesh<PlaneGeometry
+ * #e6dcc0>` so the user can still grep — even when no names are set on
+ * the scene tree.
+ */
+function describeObj(obj: THREE.Object3D): string {
+  if (obj.name) return obj.name;
+  const ctor = obj.constructor?.name ?? '?';
+  const mesh = obj as THREE.Mesh;
+  const geom = mesh.geometry?.type;
+  let color: string | undefined;
+  try {
+    const mat = mesh.material as { color?: { getHexString?: () => string } };
+    if (mat?.color?.getHexString) color = '#' + mat.color.getHexString();
+  } catch { /* color extraction is best-effort */ }
+  if (geom || color) {
+    const parts = [geom, color].filter(Boolean).join(' ');
+    return `${ctor}<${parts}>`;
+  }
+  return ctor;
 }
 
 export interface InspectMode {
@@ -273,14 +297,26 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     syncOverlayTo(target, ov);
   }
 
-  /** Best-effort clipboard write — silently ignores rejections on browsers
-   *  that gate `navigator.clipboard` behind a user-activation check (it's
-   *  fine here because we're called from a click event handler). */
+  /**
+   * Best-effort clipboard write — silently ignores rejections on browsers
+   * that gate navigator.clipboard behind a user-activation check (it's
+   * fine here because we're called from a click event handler).
+   *
+   * Format is rich enough to grep with when source.line drifts (which it
+   * does, because Error.stack in browsers reports positions in the
+   * vite-served file, not source-mapped originals). Example output:
+   *   PirateShipMesh.ts:1599 — Mesh<PlaneGeometry #e6dcc0> @ (4.2,8.1,0.3) chain=Scene>pirate.ship>mainmast>Mesh<PlaneGeometry #e6dcc0>
+   * The user can paste this into chat or `rg` and find the real call
+   * site even if the line number is off by 100 lines.
+   */
   function copySelection(sel: InspectSelection): void {
     const src = sel.source;
-    // Compact form: file:line — paste-friendly into chat or grep.
-    const compact = src ? `${src.file}:${src.line}` : `(${sel.type} uuid=${sel.uuid})`;
-    try { (navigator as any).clipboard?.writeText(compact); } catch {}
+    const fileLine = src ? `${src.file.split('/').slice(-1)[0]}:${src.line}` : `(uuid=${sel.uuid})`;
+    const desc = sel.name ?? `${sel.type}<${[sel.geometry, sel.material?.color].filter(Boolean).join(' ')}>`;
+    const pos = `(${sel.point.map((n) => n.toFixed(2)).join(',')})`;
+    const chain = sel.parentChain?.length ? ` chain=${sel.parentChain.join('>')}` : '';
+    const text = `${fileLine} — ${desc} @ ${pos}${chain}`;
+    try { (navigator as any).clipboard?.writeText(text); } catch {}
   }
 
   function onMouseDown(ev: MouseEvent): void {
