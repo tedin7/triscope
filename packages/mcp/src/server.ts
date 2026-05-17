@@ -389,6 +389,67 @@ async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 't
   };
 }
 
+async function inspect({ element, camera }: { element: string; camera?: string }) {
+  // Resolve the lab URL the same way capture_views does, then append the
+  // ?inspect=<el>&camera=<name> query so the harness boots in solo view.
+  const baseUrl = await resolveLabUrl({ element });
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  const inspectUrl = `${baseUrl}${sep}inspect=${encodeURIComponent(element)}${camera ? `&camera=${encodeURIComponent(camera)}` : ''}`;
+  const t0 = Date.now();
+  await browserPool.getPage(inspectUrl);
+  return {
+    element,
+    camera: camera ?? null,
+    url: inspectUrl,
+    navMs: Date.now() - t0,
+    hint: 'Right-drag to orbit, scroll to zoom, left-click to pick a mesh. Read .selection from telemetry after the user clicks.',
+  };
+}
+
+async function openSelection({ editor }: { editor?: string }) {
+  // Read the current selection from the telemetry snapshot. The selection
+  // is written by the inspect-mode click handler in the browser, then
+  // surfaced into /tmp/<project>-state.json on the next telemetry tick.
+  if (!existsSync(STATE_PATH)) {
+    throw new Error(`No telemetry at ${STATE_PATH} — is the dev server running with a lab open?`);
+  }
+  const state: any = JSON.parse(readFileSync(STATE_PATH, 'utf8'));
+  const sel = state?.selection;
+  if (!sel?.source?.file) {
+    throw new Error('No mesh selected yet. Open the lab in inspect mode and left-click something first.');
+  }
+  // Convert vite-served URL to a filesystem path: strip protocol+host so
+  // `code --goto` resolves it relative to cwd (the project the dev server
+  // is serving). Falls through if `file` is already a path.
+  const rawFile = String(sel.source.file);
+  const fsPath = rawFile
+    .replace(/^https?:\/\/[^/]+\//, '')   // strip http://host:port/
+    .replace(/^file:\/\//, '')             // strip file://
+    .replace(/[?#].*$/, '');               // strip query/hash
+  const absPath = fsPath.startsWith('/') ? fsPath : join(process.cwd(), fsPath);
+  const line = Number(sel.source.line ?? 1);
+  const col = Number(sel.source.col ?? 1);
+  // Editor resolution: explicit arg → $EDITOR → `code --goto`. We assume
+  // `code` is on PATH for VS Code / Cursor / VSCodium users; others can
+  // export $EDITOR (e.g. EDITOR="zed --goto") to override.
+  const cmd = editor ?? process.env.EDITOR ?? 'code';
+  // `code --goto file:line:col` is the standard VSCode invocation.
+  const usesGoto = /code\b/.test(cmd);
+  const args = usesGoto ? ['--goto', `${absPath}:${line}:${col}`] : [`${absPath}:${line}:${col}`];
+  return await new Promise<{ ok: boolean; cmd: string; args: string[]; file: string; line: number; col: number; stderr?: string }>((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    let stderr = '';
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', (err) => reject(new Error(`failed to spawn ${cmd}: ${err.message}`)));
+    // Editor commands usually fork-and-detach; don't wait for exit, just
+    // confirm we spawned without immediate error.
+    setTimeout(() => {
+      try { child.unref(); } catch {}
+      resolve({ ok: true, cmd, args, file: absPath, line, col, stderr: stderr || undefined });
+    }, 200);
+  });
+}
+
 async function runSmoke({ element }) {
   return new Promise((resolve, reject) => {
     const args = ['smoke'];
@@ -560,6 +621,32 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: { element: { type: 'string', description: 'Element lab to test (defaults to the scene lab).' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'inspect',
+    description:
+      'Open the lab for an element in interactive inspect mode (solo full-canvas camera + OrbitControls + click-to-pick). Navigates the running browser via CDP to ?inspect=<element>&camera=<name>. Use when the user asks to "inspect" or "open" an element so they can rotate and click parts of it; subsequent clicks populate .selection in telemetry with source file:line.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string', description: 'Element to inspect (must match the manifest).' },
+        camera: { type: 'string', description: 'Starting camera (defaults to the element\'s first declared camera).' },
+      },
+      required: ['element'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'open_selection',
+    description:
+      'Open the file:line of the currently selected mesh (from inspect mode) in the user\'s editor. Reads .selection.source from the telemetry snapshot and spawns $EDITOR (or `code --goto` by default). Use after the user clicks a mesh and says "open this" / "show me the code".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        editor: { type: 'string', description: 'Override the editor command. Default: $EDITOR or `code`.' },
+      },
       additionalProperties: false,
     },
   },
@@ -831,6 +918,19 @@ export async function startServer() {
         }
         case 'run_smoke':
           return jsonResult(await runSmoke({ element: args.element }));
+        case 'inspect': {
+          const parsed = z.object({
+            element: z.string(),
+            camera: z.string().optional(),
+          }).parse(args);
+          return jsonResult(await inspect({ element: parsed.element, camera: parsed.camera }));
+        }
+        case 'open_selection': {
+          const parsed = z.object({
+            editor: z.string().optional(),
+          }).parse(args);
+          return jsonResult(await openSelection(parsed));
+        }
         default:
           return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }

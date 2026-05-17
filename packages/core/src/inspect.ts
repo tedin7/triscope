@@ -58,6 +58,29 @@ export interface InspectInit {
   onSelectionChange: (sel: InspectSelection | null) => void;
 }
 
+/**
+ * Walk the scene tree and return the first Mesh whose source tag matches
+ * the given frame (same file + line). Used by inspect-mode persistence to
+ * restore the selection across full-reload — the Mesh object identity
+ * changes after reload but the source location is stable.
+ */
+function findMeshBySource(
+  scene: THREE.Scene,
+  source: SourceTag['source'] | null,
+): THREE.Object3D | null {
+  if (!source?.file) return null;
+  let match: THREE.Object3D | null = null;
+  (scene as any).traverse?.((obj: THREE.Object3D) => {
+    if (match) return;
+    const tag = obj.userData?.__tris as SourceTag | undefined;
+    if (!tag?.source) return;
+    if (tag.source.file === source.file && tag.source.line === source.line) {
+      match = obj;
+    }
+  });
+  return match;
+}
+
 /** Parse the URL for inspect activation. Returns null when off. */
 export function readInspectFromUrl(elementName: string): { camera?: string } | null {
   if (typeof window === 'undefined') return null;
@@ -207,16 +230,49 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
       selectedObject = null;
       selectOverlay.visible = false;
       init.onSelectionChange(null);
+      try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
       return;
     }
     selectedObject = hit.obj;
     selectionHit = selectionFrom(hit);
     syncOverlayTo(hit.obj as THREE.Mesh, selectOverlay);
     init.onSelectionChange(selectionHit);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selectionHit));
+    } catch {}
   }
 
   init.canvas.addEventListener('mousemove', onMouseMove);
   init.canvas.addEventListener('mousedown', onMouseDown);
+
+  // Restore last selection across full-reload (vite force-reload on
+  // shader edits). Match by source frame (file:line) — the actual Mesh
+  // object is new after reload but the source location is stable. We
+  // traverse the scene on next tick (give the element a moment to
+  // finish mounting children) and re-attach the cyan overlay.
+  const STORAGE_KEY = `triscope:selection:${init.elementName}`;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const stored = JSON.parse(raw) as InspectSelection;
+      // Use queueMicrotask so element.mount has had a chance to finish.
+      requestAnimationFrame(() => {
+        try {
+          const target = findMeshBySource(init.scene, stored.source);
+          if (target) {
+            selectedObject = target;
+            selectionHit = selectionFrom({
+              obj: target,
+              distance: stored.distance,
+              point: new THREE.Vector3(...stored.point),
+            } as any);
+            syncOverlayTo(target as THREE.Mesh, selectOverlay);
+            init.onSelectionChange(selectionHit);
+          }
+        } catch { /* corrupt stored selection — ignore */ }
+      });
+    }
+  } catch { /* localStorage unavailable — silent */ }
 
   function render(): void {
     controls.update();
