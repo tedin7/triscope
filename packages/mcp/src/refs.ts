@@ -110,6 +110,71 @@ function meanAbsDiff(a, b) {
   return +(sum / pixels).toFixed(2);
 }
 
+/**
+ * Mean Structural Similarity Index (SSIM) — perceptual metric that's
+ * robust to mild brightness/contrast shifts and sensitive to structural
+ * change. Returns a value in [-1, 1] where 1 = identical, 0 = no
+ * correlation, negative = inverse. Most natural-image diffs land in
+ * [0.5, 1.0]; below ~0.9 starts to look visibly different.
+ *
+ * We compute it over Rec.709 luminance on a 256×256 downsample (same as
+ * meanAbsDiff for comparability), with non-overlapping 8×8 windows. The
+ * three terms are luminance, contrast, and structure with the standard
+ * stability constants K1=0.01, K2=0.03 against dynamic range L=255.
+ *
+ * This is the metric auto_tune optimizes against — meanAbsDiff is too
+ * noisy for an optimizer (chases pixel-level glitter), SSIM tracks the
+ * actual structure of what the human sees.
+ */
+function ssim(a, b): number {
+  const W = 256;
+  const H = 256;
+  const A = nearestNeighborResize(a, W, H);
+  const B = nearestNeighborResize(b, W, H);
+  const lumA = new Float32Array(W * H);
+  const lumB = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const j = i * 4;
+    lumA[i] = 0.2126 * A.data[j] + 0.7152 * A.data[j + 1] + 0.0722 * A.data[j + 2];
+    lumB[i] = 0.2126 * B.data[j] + 0.7152 * B.data[j + 1] + 0.0722 * B.data[j + 2];
+  }
+  const L = 255;
+  const C1 = (0.01 * L) ** 2;
+  const C2 = (0.03 * L) ** 2;
+  const WIN = 8;
+  let total = 0;
+  let count = 0;
+  for (let wy = 0; wy < H; wy += WIN) {
+    for (let wx = 0; wx < W; wx += WIN) {
+      let muA = 0, muB = 0;
+      for (let dy = 0; dy < WIN; dy++) for (let dx = 0; dx < WIN; dx++) {
+        const i = (wy + dy) * W + (wx + dx);
+        muA += lumA[i];
+        muB += lumB[i];
+      }
+      muA /= WIN * WIN;
+      muB /= WIN * WIN;
+      let varA = 0, varB = 0, covAB = 0;
+      for (let dy = 0; dy < WIN; dy++) for (let dx = 0; dx < WIN; dx++) {
+        const i = (wy + dy) * W + (wx + dx);
+        const da = lumA[i] - muA;
+        const db = lumB[i] - muB;
+        varA += da * da;
+        varB += db * db;
+        covAB += da * db;
+      }
+      varA /= WIN * WIN - 1;
+      varB /= WIN * WIN - 1;
+      covAB /= WIN * WIN - 1;
+      const num = (2 * muA * muB + C1) * (2 * covAB + C2);
+      const den = (muA * muA + muB * muB + C1) * (varA + varB + C2);
+      total += num / den;
+      count += 1;
+    }
+  }
+  return +(total / count).toFixed(4);
+}
+
 export function composeFilmstrip(frameBase64s: string[], opts: { sep?: number } = {}): Buffer {
   // Tile N frames horizontally with a 2-px black separator. Each frame is
   // resized to match the smallest source height (so payload stays bounded
@@ -214,10 +279,12 @@ export function diffReference({ cwd, element, camera, currentBase64 }) {
   const composite = composeSideBySide(refPng, curPng);
   const compositeBuf = PNG.sync.write(composite);
   const meanAbs = meanAbsDiff(refPng, curPng);
+  const ssimScore = ssim(refPng, curPng);
   return {
     camera,
     refPath,
-    meanAbsDiff: meanAbs, // 0 = identical, 255 = max possible difference
+    meanAbsDiff: meanAbs,        // 0 = identical, 255 = max difference
+    ssim: ssimScore,             // 1 = identical, lower = more different
     compositeBase64: compositeBuf.toString('base64'),
   };
 }

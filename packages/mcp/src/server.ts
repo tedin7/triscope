@@ -389,6 +389,118 @@ async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 't
   };
 }
 
+/**
+ * auto_tune (1D): golden-section search over one knob, minimising
+ * (1 - SSIM) between the captured target_camera view and the stored
+ * reference for that (element, camera). Each iteration: set_knob → wait
+ * for the harness to apply (knobPollMs + telemetry tick + margin) →
+ * captureViews → diff_reference. Returns the best knob value found,
+ * the final SSIM, the iteration history, and total ms.
+ *
+ * Why golden-section: derivative-free, deterministic, converges
+ * exponentially (range × 1/φ per iter ≈ 0.618). 12 iterations narrow a
+ * range to ~0.7% — plenty for shader tuning. Robust to noise because we
+ * use SSIM (perceptual) rather than meanAbsDiff (pixel-level).
+ */
+async function autoTune({
+  element, knob, range, target_camera, max_iterations = 12, labUrl,
+}: {
+  element: string;
+  knob: string;
+  range: [number, number];
+  target_camera: string;
+  max_iterations?: number;
+  labUrl?: string;
+}) {
+  const refPath = refsPath(process.cwd(), element, target_camera);
+  if (!existsSync(refPath)) {
+    throw new Error(
+      `auto_tune needs a reference image at ${refPath}. Call set_reference ` +
+      `with element=${element}, camera=${target_camera} first (or paste a PNG path/base64).`
+    );
+  }
+  const target = await resolveLabUrl({ element, labUrl });
+  const { call } = await browserPool.getPage(target);
+
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const invPhi = 1 / phi;
+  let [a, b] = range;
+  if (!(b > a)) throw new Error(`auto_tune range must be [min, max] with max > min, got [${a}, ${b}]`);
+
+  const cache = new Map<string, number>(); // memoize SSIM by knob value
+  const history: Array<{ iter: number; knob: number; ssim: number; ms: number }> = [];
+  const t0 = Date.now();
+
+  async function evalAt(x: number): Promise<number> {
+    const key = x.toFixed(6);
+    if (cache.has(key)) return cache.get(key)!;
+    const iterStart = Date.now();
+    // 1. Post knob via the harness's /__knob endpoint.
+    await setKnob({ element, key: knob, value: x });
+    // 2. Wait for harness apply (knob poll 100ms + telemetry tick 500ms + margin).
+    await new Promise((r) => setTimeout(r, 800));
+    // 3. Capture target camera in-tab.
+    const cap = await call('Runtime.evaluate', {
+      expression: 'window.__TRISCOPE__.captureViews()',
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const views = cap.result.result.value ?? {};
+    const b64 = String(views[target_camera] ?? '').replace(/^data:image\/png;base64,/, '');
+    if (!b64) throw new Error(`auto_tune: captureViews returned no PNG for camera "${target_camera}"`);
+    // 4. Diff against reference; we minimise (1 - SSIM).
+    const diff = diffReference({ cwd: process.cwd(), element, camera: target_camera, currentBase64: b64 });
+    const score = diff.ssim;
+    cache.set(key, score);
+    history.push({ iter: history.length, knob: x, ssim: score, ms: Date.now() - iterStart });
+    return score;
+  }
+
+  // Initial bracket.
+  let c = b - (b - a) * invPhi;
+  let d = a + (b - a) * invPhi;
+  let fc = await evalAt(c);
+  let fd = await evalAt(d);
+
+  for (let i = 0; i < max_iterations - 2; i++) {
+    // Maximise SSIM ⇔ minimise (1 - SSIM): keep the side with higher SSIM.
+    if (fc > fd) {
+      b = d;
+      d = c;
+      fd = fc;
+      c = b - (b - a) * invPhi;
+      fc = await evalAt(c);
+    } else {
+      a = c;
+      c = d;
+      fc = fd;
+      d = a + (b - a) * invPhi;
+      fd = await evalAt(d);
+    }
+    // Early stop when the bracket is below 1% of the original range.
+    if (Math.abs(b - a) < (range[1] - range[0]) * 0.01) break;
+  }
+
+  const best = [...cache.entries()]
+    .map(([k, v]) => ({ knob: Number(k), ssim: v }))
+    .sort((x, y) => y.ssim - x.ssim)[0];
+
+  // Leave the knob at the best value so the user sees the converged state.
+  await setKnob({ element, key: knob, value: best.knob });
+
+  return {
+    element,
+    knob,
+    target_camera,
+    bestKnobValue: best.knob,
+    bestSsim: best.ssim,
+    iterations: history.length,
+    history,
+    totalMs: Date.now() - t0,
+    hint: 'SSIM 1.0 = identical to reference, 0.9+ = visually close, <0.7 = clearly different. The knob has been left at bestKnobValue in the live lab.',
+  };
+}
+
 async function inspect({ element, camera }: { element: string; camera?: string }) {
   // Resolve the lab URL the same way capture_views does, then append the
   // ?inspect=<el>&camera=<name> query so the harness boots in solo view.
@@ -647,6 +759,30 @@ const tools = [
       properties: {
         editor: { type: 'string', description: 'Override the editor command. Default: $EDITOR or `code`.' },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'auto_tune',
+    description:
+      'Find the knob value that maximises SSIM (perceptual similarity) between the captured view and a stored reference image, using derivative-free golden-section search. Requires a prior set_reference for (element, target_camera). Iterations: post_knob → wait → captureViews → diff_reference. Use to converge a single shader parameter on a reference photo without manual bisection.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        element: { type: 'string', description: 'Element whose knob to tune.' },
+        knob: { type: 'string', description: 'Knob key (must exist on Element.knobs and be type=number).' },
+        range: {
+          type: 'array',
+          description: 'Inclusive [min, max] search bracket. Should cover the knob\'s declared min/max.',
+          items: { type: 'number' },
+          minItems: 2,
+          maxItems: 2,
+        },
+        target_camera: { type: 'string', description: 'Camera the SSIM is computed on. Must have a stored reference (set_reference first).' },
+        max_iterations: { type: 'number', description: 'Cap on knob evaluations. Default 12 (golden section converges to ~0.7% of range).' },
+        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
+      },
+      required: ['element', 'knob', 'range', 'target_camera'],
       additionalProperties: false,
     },
   },
@@ -930,6 +1066,24 @@ export async function startServer() {
             editor: z.string().optional(),
           }).parse(args);
           return jsonResult(await openSelection(parsed));
+        }
+        case 'auto_tune': {
+          const parsed = z.object({
+            element: z.string(),
+            knob: z.string(),
+            range: z.tuple([z.number(), z.number()]),
+            target_camera: z.string(),
+            max_iterations: z.number().int().min(2).max(50).optional(),
+            labUrl: z.string().optional(),
+          }).parse(args);
+          return jsonResult(await autoTune({
+            element: parsed.element,
+            knob: parsed.knob,
+            range: [parsed.range[0], parsed.range[1]],
+            target_camera: parsed.target_camera,
+            max_iterations: parsed.max_iterations,
+            labUrl: parsed.labUrl,
+          }));
         }
         default:
           return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
