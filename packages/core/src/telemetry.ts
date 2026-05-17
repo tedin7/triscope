@@ -108,7 +108,22 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
           if (req.method === 'POST') {
             const body = await readBody(req);
             const payload = JSON.parse(body);
-            writeFileSync(statePath, JSON.stringify(payload, null, 2));
+            // Merge the elements map across labs so two tabs on different
+            // lab pages don't clobber each other's telemetry. Top-level
+            // fields (perf/time/cameras) still reflect the last writer
+            // since they're per-tab — that's expected when read_telemetry
+            // is project-scoped, not lab-scoped.
+            let merged: any = payload;
+            try {
+              if (existsSync(statePath)) {
+                const existing = JSON.parse(readFileSync(statePath, 'utf8'));
+                merged = {
+                  ...payload,
+                  elements: { ...(existing?.elements ?? {}), ...(payload?.elements ?? {}) },
+                };
+              }
+            } catch { /* corrupt file — overwrite with the new payload */ }
+            writeFileSync(statePath, JSON.stringify(merged, null, 2));
             const ts = new Date().toISOString();
             const fps = (payload?.perf?.fps as number | undefined)?.toFixed?.(0) ?? '?';
             const cam = (payload?.activeCamera as string | undefined) ?? '?';

@@ -157,6 +157,8 @@ See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
 | `boot failed: navigator.gpu is unavailable` | Headless Chrome without Vulkan flags | Run headed under xvfb (see `examples/ocean-galleon/smoke.mjs`) |
 | Smoke `fps: 0` baseline | Reading state file before harness wrote first tick | Wait for `fps > 1` in a poll loop (smoke does this) |
 | Vite "Port 5173 in use" in smoke | Another dev server already running | The smoke uses a random port 5300-5400 with `--strictPort` |
+| MCP using wrong Chromium binary | `CHROME_BIN` env only read at MCP server startup | Restart the MCP server after changing `CHROME_BIN` / `PUPPETEER_EXECUTABLE_PATH`. Resolution: explicit arg → `CHROME_BIN` → `PUPPETEER_EXECUTABLE_PATH` → plain `chromium`. |
+| `capture_views` returns `Connection closed` on big elements | inline payload exceeded ~1 MB MCP message budget and crashed the server | Already auto-capped (default `inline=false`). Override budget via `TRISCOPE_INLINE_PAYLOAD_BUDGET=2097152` if you really need more inline content. |
 
 ## Roadmap to 0.1.0
 

@@ -28,6 +28,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { PNG } from 'pngjs';
 
 import {
   setReference, diffReference, refsPath,
@@ -181,12 +182,17 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
   mkdirSync(outDir, { recursive: true });
 
   const t0 = Date.now();
+  const timings: Record<string, number> = {};
+  const tNavStart = Date.now();
   const { call } = await browserPool.getPage(target);
+  timings.navigate = Date.now() - tNavStart;
+  const tRenderStart = Date.now();
   const result = await call('Runtime.evaluate', {
     expression: 'window.__TRISCOPE__.captureViews()',
     awaitPromise: true,
     returnByValue: true,
   });
+  timings.render = Date.now() - tRenderStart;
   const views = result.result.result.value;
   if (!views || typeof views !== 'object') {
     // By the time we get here browserPool.getPage has already proven the
@@ -200,6 +206,7 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
   }
   const written = {};
   const base64ByCam = {};
+  const tWriteStart = Date.now();
   for (const [cam, dataUrl] of Object.entries(views)) {
     if (typeof dataUrl !== 'string') continue;
     const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
@@ -208,23 +215,47 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
     written[cam] = path;
     base64ByCam[cam] = b64;
   }
+  timings.writePngs = Date.now() - tWriteStart;
+  const tTelStart = Date.now();
   const telemetry = await call('Runtime.evaluate', {
     expression: 'JSON.stringify(window.__TRISCOPE__.sampleTelemetry())',
     returnByValue: true,
   });
   const sample = JSON.parse(telemetry.result.result.value);
+  timings.telemetry = Date.now() - tTelStart;
 
   // captureViews() populates window.__TRISCOPE__.lastGpuProbes as a side
   // effect (per-camera luminance/p5/p95/dynamicRange). Surface it in the
   // tool response so consumers don't have to do a second CDP eval.
-  let gpuProbes = null;
+  // If the harness didn't populate it (lab page that doesn't use
+  // @triscope/core runLab — e.g. water3d's scene lab which has a custom
+  // capture path), we decode the captured PNGs server-side with pngjs
+  // and compute the same scalars. Slower (~5 ms per camera) but means
+  // GPU probes are available for any captured PNG.
+  const tProbeStart = Date.now();
+  let gpuProbes: Record<string, any> | null = null;
+  let gpuProbesSource: 'harness' | 'server-fallback' | 'unavailable' = 'unavailable';
   try {
     const probesResp = await call('Runtime.evaluate', {
       expression: 'JSON.stringify(window.__TRISCOPE__.lastGpuProbes ?? null)',
       returnByValue: true,
     });
-    gpuProbes = JSON.parse(probesResp.result.result.value);
-  } catch { /* old core (pre-GPU-probes) — leave null */ }
+    const fromHarness = JSON.parse(probesResp.result.result.value);
+    if (fromHarness && Object.keys(fromHarness).length > 0) {
+      gpuProbes = fromHarness;
+      gpuProbesSource = 'harness';
+    }
+  } catch { /* old core — fall through to server-side */ }
+  if (!gpuProbes) {
+    gpuProbes = {};
+    for (const [cam, b64] of Object.entries(base64ByCam) as [string, string][]) {
+      try { gpuProbes[cam] = probeStatsFromPng(Buffer.from(b64, 'base64')); }
+      catch { /* skip cameras whose PNGs fail to decode */ }
+    }
+    if (Object.keys(gpuProbes).length === 0) gpuProbes = null;
+    else gpuProbesSource = 'server-fallback';
+  }
+  timings.probes = Date.now() - tProbeStart;
 
   return {
     element: element ?? null,
@@ -233,9 +264,45 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
     cameraOrder: Object.keys(written),
     telemetry: sample,
     gpuProbes,
+    gpuProbesSource,
     inline,
     captureMs: Date.now() - t0,
+    timings,
     _base64ByCam: base64ByCam,
+  };
+}
+
+/** Server-side fallback: same math the harness does, but starting from a
+ *  decoded PNG buffer instead of a 2D canvas. Stride-samples to ~2300 px
+ *  so the cost is bounded (~5 ms per 1280×720 PNG). */
+function probeStatsFromPng(pngBuf: Buffer): {
+  luminance: number; p5: number; p95: number; dynamicRange: number; samples: number;
+} {
+  const img = PNG.sync.read(pngBuf);
+  const stride = Math.max(1, Math.floor(Math.sqrt((img.width * img.height) / 2304)));
+  const lums: number[] = [];
+  let sum = 0;
+  for (let y = 0; y < img.height; y += stride) {
+    for (let x = 0; x < img.width; x += stride) {
+      const i = (y * img.width + x) * 4;
+      const r = img.data[i] / 255;
+      const g = img.data[i + 1] / 255;
+      const b = img.data[i + 2] / 255;
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      lums.push(lum);
+      sum += lum;
+    }
+  }
+  lums.sort((a, b) => a - b);
+  const n = lums.length;
+  const p5 = lums[Math.floor(n * 0.05)];
+  const p95 = lums[Math.floor(n * 0.95)];
+  return {
+    luminance: +(sum / n).toFixed(4),
+    p5: +p5.toFixed(4),
+    p95: +p95.toFixed(4),
+    dynamicRange: +(p95 / Math.max(p5, 1 / 255)).toFixed(2),
+    samples: n,
   };
 }
 
@@ -389,7 +456,7 @@ const tools = [
       properties: {
         element: { type: 'string', description: 'Element name. URL is resolved via manifest/config.' },
         labUrl: { type: 'string', description: 'Override the lab URL entirely (highest precedence).' },
-        inline: { type: 'boolean', description: 'Return images as inline content blocks. Default true.', default: true },
+        inline: { type: 'boolean', description: 'Return images as inline content blocks. Default false — safer for many-camera elements where the inline base64 payload can blow the MCP stdio message budget. Set true only when you specifically want inline.', default: false },
       },
       additionalProperties: false,
     },
@@ -516,12 +583,16 @@ export async function startServer() {
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args = {} } = req.params;
-    // One info log per tool entry (success and failure both leave a trail
-    // — combined with the error log on catch, every invocation is in
-    // /tmp/<project>-mcp.log).
+    // One info log per tool entry; on the way out either 'succeeded' or
+    // 'failed' so a hung/dropped call leaves a half-pair in the log (no
+    // succeeded/failed entry → the response never returned, e.g. the
+    // process was OOM-killed during JSON encoding).
     const toolStart = Date.now();
     logger.info(`tool:${name}`, 'invoked', { args });
+    const finish = (outcome: 'succeeded' | 'failed', extra?: Record<string, unknown>) =>
+      logger.info(`tool:${name}`, outcome, { ms: Date.now() - toolStart, ...(extra ?? {}) });
     try {
+      const result = await (async () => {
       switch (name) {
         case 'list_elements':
           return jsonResult(await listElements());
@@ -541,7 +612,7 @@ export async function startServer() {
           const res = await captureViews({
             element: args.element as string | undefined,
             labUrl: args.labUrl as string | undefined,
-            inline: (args.inline ?? true) as boolean,
+            inline: (args.inline ?? false) as boolean,
           });
           const { _base64ByCam, ...summary } = res;
           // Cap inline payload: 12-camera scenes can produce ~20 MB of base64
@@ -763,8 +834,11 @@ export async function startServer() {
         default:
           return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }
+      })();
+      finish('succeeded');
+      return result;
     } catch (err: any) {
-      logger.info(`tool:${name}`, 'failed', { ms: Date.now() - toolStart });
+      finish('failed');
       recordError(`tool:${name}`, err);
       return {
         isError: true,
