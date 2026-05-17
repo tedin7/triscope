@@ -2,10 +2,27 @@
   "name": "@triscope/example-ocean-galleon",
   "version": "0.0.0",
   "private": true,
-  "description": "Reference scene: sea, sky, seafloor, ship composed via Triscope. Ported from the water3d prototype.",
+  "description": "Reference Triscope lab: standalone procedural galleon with 8 cameras, 6 knobs, motion probes, TSL sail material.",
   "type": "module",
+  "triscope": {
+    "labs": {
+      "galleon": "/"
+    }
+  },
   "scripts": {
-    "build": "echo \"ocean-galleon: build TODO\"",
-    "dev": "echo \"ocean-galleon: dev TODO\""
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@triscope/core": "*",
+    "three": "^0.176.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
   }
 }

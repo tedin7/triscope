@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Triscope · ocean-galleon</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a1a20; color: #cfd8dc; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+      #canvas { position: absolute; inset: 0; display: block; }
+      #hud { position: absolute; top: 8px; left: 8px; padding: 4px 8px; background: rgba(0,0,0,0.5); border-radius: 4px; z-index: 10; font-variant-numeric: tabular-nums; }
+      #lab-controls { position: absolute; top: 8px; right: 8px; width: 280px; max-height: calc(100vh - 16px); overflow: auto; padding: 8px; background: rgba(0,0,0,0.55); border-radius: 6px; z-index: 10; }
+      #lab-controls label { display: block; margin: 6px 0 2px; font-size: 12px; opacity: 0.8; }
+      #lab-controls input[type=range] { width: 100%; }
+      .triscope-label { color: #b0bec5; font-size: 11px; letter-spacing: 0.08em; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+      #boot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #0a1a20; z-index: 100; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">booting…</div>
+    <div id="labels"></div>
+    <div id="lab-controls"></div>
+    <div id="boot">booting WebGPU…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
