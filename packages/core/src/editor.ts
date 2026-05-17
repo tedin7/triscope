@@ -66,6 +66,26 @@ export function mountEditor(
         out.textContent = input.checked ? 'on' : 'off';
         onChange(key, input.checked);
       };
+    } else if (spec.type === 'trigger') {
+      // Trigger renders as a button. Each click fires onChange(true) — the
+      // value carries no state, the act itself is the signal.
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = spec.label ?? key;
+      btn.dataset.knobKey = key;
+      btn.onclick = () => {
+        out.textContent = 'fired';
+        onChange(key, true);
+        setTimeout(() => { out.textContent = '–'; }, 400);
+      };
+      out.textContent = '–';
+      row.appendChild(btn);
+      row.appendChild(out);
+      container.appendChild(row);
+      values.set(key, out);
+      // No persistent input element — leave inputs.set unset; setValue from
+      // external pulse will still flash the output.
+      continue;
     }
 
     row.appendChild(input);
@@ -77,10 +97,18 @@ export function mountEditor(
 
   return {
     setValue(key, value) {
-      const inp = inputs.get(key);
       const out = values.get(key);
       const spec = knobs[key];
-      if (!inp || !out || !spec) return;
+      if (!out || !spec) return;
+      if (spec.type === 'trigger') {
+        // External pulse — flash the output to confirm receipt; no input
+        // element to sync because trigger has no persistent state.
+        out.textContent = 'fired';
+        setTimeout(() => { out.textContent = '–'; }, 400);
+        return;
+      }
+      const inp = inputs.get(key);
+      if (!inp) return;
       if (spec.type === 'number' || spec.type === 'int') {
         inp.value = String(value);
         out.textContent = formatNumber(Number(value), spec.type);

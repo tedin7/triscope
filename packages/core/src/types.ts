@@ -19,7 +19,14 @@ export type Knob =
   | { type: 'number'; min: number; max: number; step?: number; default: number; label?: string }
   | { type: 'int'; min: number; max: number; default: number; label?: string }
   | { type: 'color'; default: string; label?: string }
-  | { type: 'boolean'; default: boolean; label?: string };
+  | { type: 'boolean'; default: boolean; label?: string }
+  /**
+   * Action knob — fires `onKnob(handle, key, true)` each time it's set, but
+   * does NOT persist a value across reloads and does NOT auto-fire on mount.
+   * Use for one-shot triggers (fire cannon, load weapon, request screenshot)
+   * where the act of setting is the signal and there is no "current value".
+   */
+  | { type: 'trigger'; label?: string };
 
 /** Context passed to `Element.mount`. */
 export interface MountContext {
@@ -78,7 +85,10 @@ export interface Element {
   motionProbes?: Record<string, (handle: MountHandle, ctx: MountContext) => number>;
 }
 
-/** Default value extracted from a knob spec. */
+/** Default value extracted from a knob spec. Trigger knobs have no
+ * default — they are pure action signals; this returns `false` only as a
+ * placeholder so callers iterating knob values get a defined entry. */
 export function knobDefault(k: Knob): number | string | boolean {
+  if (k.type === 'trigger') return false;
   return k.default;
 }

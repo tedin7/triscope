@@ -119,6 +119,13 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     /* dev server transient — fall through to defaults */
   }
   for (const [k, spec] of Object.entries(knobs)) {
+    // Trigger knobs have no persistent value and must not fire on mount —
+    // they are pure action signals. Skip restore + onKnob for them; the
+    // element will receive onKnob only when set_knob is actively called.
+    if (spec.type === 'trigger') {
+      knobValues[k] = false;
+      continue;
+    }
     const saved = persistedKnobs[k];
     knobValues[k] = (saved !== undefined ? saved : knobDefault(spec)) as number | string | boolean;
     if (element.onKnob) element.onKnob(handle, k, knobValues[k]);
@@ -131,6 +138,14 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   }
 
   function applyKnob(key: string, value: number | string | boolean, fromExternal: boolean): void {
+    const spec = knobs[key];
+    if (spec?.type === 'trigger') {
+      // Trigger: don't persist value, always pass `true` to onKnob regardless
+      // of what the caller passed. The value is purely a pulse signal.
+      if (element.onKnob) element.onKnob(handle, key, true);
+      if (fromExternal && editor) editor.setValue(key, true);
+      return;
+    }
     knobValues[key] = value;
     if (element.onKnob) element.onKnob(handle, key, value);
     if (fromExternal && editor) editor.setValue(key, value);
