@@ -133,12 +133,23 @@ in-page console scripts use it as the single entry point.
 
 ## MCP integration (for Claude Code & friends)
 
-Install once per project:
+**Claude Code** (per project):
 
 ```bash
 cd <your-triscope-project>
 npx triscope mcp install            # adds .mcp.json
 ```
+
+**Codex CLI** (separate ecosystem, manual registration):
+
+```bash
+codex mcp add triscope \
+  -- node $(npm root)/@triscope/mcp/bin/triscope-mcp-supervised.mjs
+```
+
+(Edit `~/.codex/config.toml` directly if you prefer. The supervised
+wrapper auto-restarts the server on crash and is recommended for both
+ecosystems.)
 
 The MCP server exposes:
 
@@ -170,6 +181,7 @@ See [`packages/mcp/README.md`](./packages/mcp/README.md) for tool schemas.
 | Vite "Port 5173 in use" in smoke | Another dev server already running | The smoke uses a random port 5300-5400 with `--strictPort` |
 | MCP using wrong Chromium binary | `CHROME_BIN` env only read at MCP server startup | Restart the MCP server after changing `CHROME_BIN` / `PUPPETEER_EXECUTABLE_PATH`. Resolution: explicit arg → `CHROME_BIN` → `PUPPETEER_EXECUTABLE_PATH` → plain `chromium`. |
 | `capture_views` returns `Connection closed` on big elements | inline payload exceeded ~1 MB MCP message budget and crashed the server | Already auto-capped (default `inline=false`). Override budget via `TRISCOPE_INLINE_PAYLOAD_BUDGET=2097152` if you really need more inline content. |
+| `DevTools endpoint did not become ready on 127.0.0.1:9230` from `inspect`/`capture_views` | Sandboxed Chromium can't bind a network port, OR another Chromium instance is reusing the same profile dir (silent forward on singleton match). | Pre-launch Chrome yourself: `chromium --remote-debugging-port=9230 --enable-unsafe-webgpu http://localhost:5173/`. The MCP server auto-attaches to any existing DevTools endpoint on that port before trying to spawn its own. Or set `TRISCOPE_DEBUG_PORT` to a port your sandbox allows. |
 
 ## Platform support
 

@@ -18,6 +18,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const DEFAULT_CHROME_ARGS = [
   '--enable-unsafe-webgpu',
   '--ignore-gpu-blocklist',
+  // Suppress the first-run wizard and the default-browser banner: both
+  // can block the new window from rendering or trigger a different code
+  // path that ignores --remote-debugging-port until dismissed. Both have
+  // been seen to leave Chromium "running" but with no CDP endpoint open,
+  // which manifests as a "DevTools endpoint did not become ready" error.
+  '--no-first-run',
+  '--no-default-browser-check',
 ];
 
 function parseExtraChromeArgs(): string[] {
@@ -166,7 +173,17 @@ export function createBrowserPool({
       return;
     }
 
-    const profile = join(tmpdir(), `triscope-mcp-profile-${process.pid}`);
+    // Profile dir: pid + monotonic timestamp + random suffix → unique per
+    // spawn so two concurrent MCP servers (or one that respawned after a
+    // crash, leaving SingletonLock pointing at a dead PID) can never share
+    // the same dir. Chromium's singleton check is path-based — same dir =
+    // forwards URL to the "running" instance and exits without binding
+    // --remote-debugging-port, which is the silent-fail mode that's hard
+    // to diagnose.
+    const profile = join(
+      tmpdir(),
+      `triscope-mcp-profile-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    );
     const args = chromeLaunchArgs(profile, initialUrl);
     chromeExit = null;
     chromeStderr = '';
@@ -208,7 +225,14 @@ export function createBrowserPool({
     if (!pages) {
       const stderr = tailLines(chromeStderr);
       const exit = chromeExit ? ` chromiumExit=${JSON.stringify(chromeExit)}` : '';
-      const hint = 'If this runs under Codex/Claude and headed launch still fails, pre-launch Chrome with --remote-debugging-port or set TRISCOPE_CHROME_ARGS=--headless=new for non-interactive capture.';
+      // Silent-exit pattern: chromiumExit is null (process didn't die) but
+      // port stayed closed. Almost always: sandboxed Chromium can't bind
+      // network ports, or the singleton check forwarded the URL to a
+      // (non-debuggable) sibling instance.
+      const silentExit = !chromeExit && !pages;
+      const hint = silentExit
+        ? 'Chromium process is alive but DevTools never opened — usually the host sandbox is blocking the bind on TRISCOPE_DEBUG_PORT, or another Chromium instance is reusing the same profile dir. Workarounds: (1) pre-launch Chrome yourself with --remote-debugging-port=' + port + ' --enable-unsafe-webgpu — the MCP server auto-attaches to an existing endpoint when present; (2) set TRISCOPE_DEBUG_PORT to a port the sandbox permits.'
+        : 'If this runs under Codex/Claude and headed launch still fails, pre-launch Chrome with --remote-debugging-port=' + port + ' or set TRISCOPE_CHROME_ARGS=--headless=new for non-interactive capture.';
       throw new Error(`DevTools endpoint did not become ready on 127.0.0.1:${port}.${exit}${stderr ? `\nstderr:\n${stderr}` : ''}\n${hint}`);
     }
     await connectToPage(initialUrl, pages);
