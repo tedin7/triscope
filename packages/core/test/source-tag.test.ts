@@ -9,21 +9,32 @@ import {
 } from '../src/source-tag.js';
 
 /**
- * The patch monkey-patches THREE.Object3D.prototype.add globally. We can't
- * un-patch, so the idempotency test is the *first* exercise of the module
- * — subsequent calls in any later test would just return false.
+ * The patch monkey-patches THREE.Object3D.prototype.add globally and
+ * memoises with a module-level flag, so it can patch only once per
+ * process. Tests below are order-independent: we ensure the patch is
+ * installed, then assert observable behaviour. The dedicated idempotency
+ * assertion (any subsequent call is a no-op) holds regardless of who
+ * called installSourceTagPatch() first.
  */
 describe('installSourceTagPatch', () => {
-  it('patches THREE.Object3D.prototype.add and is idempotent', async () => {
-    // Importing source-tag.ts already triggers no patching at import time
-    // (the export is a function). First call returns true, second false.
-    const first = installSourceTagPatch();
-    const second = installSourceTagPatch();
-    // Either first call was a no-op (already patched by a prior test run)
-    // and returns false, or it returned true; in either case, the second
-    // call MUST be false.
-    expect(typeof first).toBe('boolean');
-    expect(second).toBe(false);
+  it('is idempotent: any call after the first one returns false', async () => {
+    installSourceTagPatch(); // ensure installed (no-op if already)
+    expect(installSourceTagPatch()).toBe(false);
+    expect(installSourceTagPatch()).toBe(false);
+  });
+
+  it('after installation, .add() actually swaps to the patched implementation', async () => {
+    installSourceTagPatch();
+    const THREE = await import('three/webgpu');
+    // The patch produces a function whose source contains our tag-writing
+    // logic; we don't snapshot the source, but we can verify the visible
+    // side-effect: a brand-new mesh added to a brand-new scene gets a
+    // userData.__tris record.
+    const scene = new THREE.Scene();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    expect(mesh.userData?.__tris).toBeUndefined();
+    scene.add(mesh);
+    expect(mesh.userData?.__tris).toBeDefined();
   });
 
   it('tags newly-added meshes with userData.__tris.source', async () => {

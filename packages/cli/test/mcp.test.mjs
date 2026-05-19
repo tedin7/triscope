@@ -46,6 +46,69 @@ describe('runMcp dispatcher', () => {
   it('throws on an unknown action', async () => {
     await expect(runMcp({ action: 'frobnicate' })).rejects.toThrow(/Unknown mcp action/);
   });
+
+  it('install --project writes .mcp.json + the hook into the cwd, end-to-end', async () => {
+    // We isolate the cwd into a tmpdir so the test never pollutes the
+    // monorepo. The scope-project branch needs no `claude` CLI on PATH,
+    // so this is a real exercise of the install dispatch path (resolve
+    // server bin → write project mcp.json → mergeHook).
+    const dir = join(tmpdir(), `triscope-runmcp-${process.pid}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const origCwd = process.cwd();
+    process.chdir(dir);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await runMcp({ action: 'install', scope: 'project', url: 'http://localhost:9999', withHook: true });
+      const mcpJson = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8'));
+      expect(mcpJson.mcpServers.triscope.command).toBe('node');
+      expect(mcpJson.mcpServers.triscope.env.TRISCOPE_URL).toBe('http://localhost:9999');
+      // Hook merged into the project-local settings file.
+      const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
+      expect(settings.hooks.PostToolUse.some((e) => e._triscope === true)).toBe(true);
+    } finally {
+      process.chdir(origCwd);
+      log.mockRestore();
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('install --project --no-hook skips the settings merge', async () => {
+    const dir = join(tmpdir(), `triscope-runmcp-nohook-${process.pid}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const origCwd = process.cwd();
+    process.chdir(dir);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await runMcp({ action: 'install', scope: 'project', url: 'http://x', withHook: false });
+      expect(existsSync(join(dir, '.mcp.json'))).toBe(true);
+      expect(existsSync(join(dir, '.claude', 'settings.local.json'))).toBe(false);
+    } finally {
+      process.chdir(origCwd);
+      log.mockRestore();
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('uninstall --project removes both the registration and the hook', async () => {
+    const dir = join(tmpdir(), `triscope-runmcp-uninst-${process.pid}-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const origCwd = process.cwd();
+    process.chdir(dir);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await runMcp({ action: 'install', scope: 'project', url: 'http://x' });
+      expect(existsSync(join(dir, '.mcp.json'))).toBe(true);
+      await runMcp({ action: 'uninstall', scope: 'project' });
+      const mcpJson = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8'));
+      expect(mcpJson.mcpServers.triscope).toBeUndefined();
+      const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
+      expect(settings.hooks.PostToolUse.some((e) => e._triscope === true)).toBe(false);
+    } finally {
+      process.chdir(origCwd);
+      log.mockRestore();
+      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    }
+  });
 });
 
 describe('triscopeHookSpec', () => {

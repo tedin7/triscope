@@ -1,20 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { locateScaffolderBin, runInit } from '../src/init.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const BIN = resolve(HERE, '..', 'bin', 'triscope.mjs');
 
 describe('locateScaffolderBin', () => {
   it('finds the workspace-sibling create-triscope bin in this monorepo', () => {
     const bin = locateScaffolderBin();
-    // We run from this very monorepo, so the workspace path must resolve.
     expect(bin).not.toBeNull();
     expect(existsSync(bin)).toBe(true);
-    expect(bin).toMatch(/create-triscope\/bin\/create\.mjs$/);
+    expect(bin).toMatch(/create-triscope[\\/]bin[\\/]create\.mjs$/);
   });
 });
 
-describe('runInit', () => {
+/**
+ * runInit in-process: covers the early validation + happy-path dispatch
+ * code. The subprocess-based tests below are the ones that actually
+ * validate end-to-end semantics (real exit codes, real filesystem) —
+ * these in-process tests pad coverage and pin the dispatch shape.
+ */
+describe('runInit (in-process)', () => {
   let exitSpy;
   let errSpy;
   beforeEach(() => {
@@ -26,26 +36,73 @@ describe('runInit', () => {
     errSpy.mockRestore();
   });
 
-  it('exits 2 when no dir is provided', async () => {
+  it('exits 2 with a "Usage:" message when no dir is passed', async () => {
     await expect(runInit({})).rejects.toThrow(/exit:2/);
     expect(errSpy).toHaveBeenCalledWith(expect.stringMatching(/Usage:/));
   });
 
-  it('warns "refusing" when the target directory exists and is non-empty', async () => {
-    // runInit's exit(2) is wrapped in a try/catch that swallows our spy's
-    // throw, so the *behavioural* assertion is the error message — the
-    // function tries to exit, but if we let it continue (as the spy does)
-    // it eventually fails when spawning the scaffolder; either way the
-    // console.error must fire first.
-    const dir = join(tmpdir(), `triscope-init-nonempty-${process.pid}-${Date.now()}`);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'sentinel'), 'x');
+  it('happy path: scaffolds into a fresh dir (uses the real bundled template)', async () => {
+    const target = join(tmpdir(), `triscope-init-inproc-${process.pid}-${Date.now()}`);
     try {
-      // Swallow either the spy-thrown exit OR the downstream spawn failure.
-      await runInit({ dir }).catch(() => {});
+      await runInit({ dir: target });
+      expect(existsSync(join(target, 'package.json'))).toBe(true);
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  it('emits a "refusing" warning when target exists and is non-empty (then attempts spawn fallback)', async () => {
+    // Source-of-record note: runInit's `process.exit(2)` here lives inside
+    // a try/catch that swallows our spy's synthetic throw. The behaviourally
+    // observable signal is therefore the console.error — the SUBPROCESS
+    // test below catches the actual exit code, this one pins the message.
+    const target = join(tmpdir(), `triscope-init-nonempty-${process.pid}-${Date.now()}`);
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, 'sentinel'), 'x');
+    try {
+      await runInit({ dir: target }).catch(() => {});
       expect(errSpy).toHaveBeenCalledWith(expect.stringMatching(/refusing/));
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * runInit calls process.exit(2) inside a try/catch that swallows
+ * synchronous throws — so a vi.spyOn(process, 'exit') based test gives
+ * misleading results. We run the bin as a real subprocess instead: the
+ * actual process truly exits, and we observe stderr + exit code as a user
+ * would.
+ */
+describe('triscope init (real subprocess)', () => {
+  let TMP;
+  beforeEach(() => {
+    TMP = join(tmpdir(), `triscope-init-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    mkdirSync(TMP, { recursive: true });
+  });
+  afterEach(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+
+  it('exits 2 with usage when no dir is given', () => {
+    const r = spawnSync(process.execPath, [BIN, 'init'], { encoding: 'utf8' });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/Usage:/);
+  });
+
+  it('exits non-zero when the target directory exists and is non-empty', () => {
+    const target = join(TMP, 'occupied');
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, 'sentinel'), 'x');
+    const r = spawnSync(process.execPath, [BIN, 'init', target], { encoding: 'utf8' });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/refusing|Refusing/);
+  });
+
+  it('scaffolds a fresh project end-to-end into a clean dir', () => {
+    const target = join(TMP, 'fresh');
+    const r = spawnSync(process.execPath, [BIN, 'init', target], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/Scaffolded/);
+    expect(existsSync(join(target, 'package.json'))).toBe(true);
   });
 });
