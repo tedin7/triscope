@@ -1,6 +1,6 @@
 {
   "name": "create-triscope",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Scaffold a new Triscope project: Vite + Three.js WebGPU + lab harness + .claude/skills/.",
   "type": "module",
   "bin": {

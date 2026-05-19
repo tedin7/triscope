@@ -1,6 +1,6 @@
 {
   "name": "@triscope/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Triscope runtime: Element contract, multi-camera lab harness, Vite telemetry plugin.",
   "type": "module",
   "main": "./dist/index.js",

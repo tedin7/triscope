@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Lets release.yml re-run the full gate against a tag commit before
+  # `npm publish`. No inputs needed — the called workflow checks out
+  # whichever ref the caller is on.
+  workflow_call:
 
 # Concurrency: cancel in-flight runs on the same PR/branch so a force-push
 # doesn't pile up workers.

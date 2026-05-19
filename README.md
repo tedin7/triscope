@@ -236,7 +236,12 @@ exact MCP tool call + Node error message — most fixes will be small.
 - [x] CI revival — `.github/workflows/ci.yml`: typecheck + unit tests
       with coverage on every PR, and the `ocean-galleon` smoke under
       `xvfb` against a real Chromium build
-- [ ] npm publish + tagged release
+- [x] npm publish pipeline — `.github/workflows/release.yml` triggers
+      on `v*.*.*` tags, re-runs the full CI gate against the tag
+      commit, verifies every workspace's `package.json#version`
+      matches the tag, then runs `npm publish --workspaces` with
+      provenance. CHANGELOG + CONTRIBUTING in place. Tag a release
+      to publish (a maintainer's gesture, not on every merge).
 
 ## License
 

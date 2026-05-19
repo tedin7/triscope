@@ -1,6 +1,6 @@
 {
   "name": "@triscope/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Triscope CLI: dev, state, list, smoke. Headed-Chromium WebGPU smoke harness for AI iteration.",
   "type": "module",
   "bin": {

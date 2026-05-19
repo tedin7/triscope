@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run: build + pack but skip the actual `npm publish`.'
+        type: boolean
+        default: true
+
+# A release must never race itself.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Re-run the full gate. The CI workflow already does this on the merge
+  # commit, but the release tag is a separate ref and we want the publish
+  # step to be impossible without a green build of *this* exact ref.
+  gate:
+    name: re-run gate on the tag commit
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: build + npm publish (workspaces)
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # for npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all workspaces
+        run: npm run build --workspaces --if-present
+
+      - name: Verify package versions match the tag
+        if: github.event_name == 'push'
+        run: |
+          # Tag form: v0.1.0 → expected version 0.1.0
+          TAG="${GITHUB_REF##*/}"
+          EXPECTED="${TAG#v}"
+          for pkg in packages/core packages/cli packages/mcp packages/create-triscope; do
+            ACTUAL="$(node -p "require('./${pkg}/package.json').version")"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then
+              echo "::error file=${pkg}/package.json::version mismatch: ${pkg} is ${ACTUAL}, tag is ${EXPECTED}"
+              exit 1
+            fi
+          done
+          echo "All package versions match ${EXPECTED}."
+
+      - name: Pack (dry-run preview)
+        run: |
+          for pkg in packages/core packages/cli packages/mcp packages/create-triscope; do
+            echo "--- $pkg ---"
+            npm pack --workspace="./${pkg}" --dry-run
+          done
+
+      - name: Publish to npm
+        if: github.event_name == 'push' || github.event.inputs.dry_run == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # `--workspaces` publishes every public workspace package in
+          # one call. `--access public` is required for first-time
+          # publish of @scoped packages.
+          npm publish --workspaces --access public --provenance
+
+      - name: Note that publish was skipped (dry-run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false'
+        run: echo "Dry-run mode: skipped npm publish. Re-run with dry_run=false to actually publish."
