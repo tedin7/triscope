@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   workflow_dispatch:
   # Lets release.yml re-run the full gate against a tag commit before
@@ -21,7 +21,7 @@ jobs:
   # Most regressions land here.
   unit:
     name: typecheck + unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +60,7 @@ jobs:
   # what catches harness/runtime regressions the unit tests can't see.
   smoke:
     name: end-to-end smoke (xvfb + chromium)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
