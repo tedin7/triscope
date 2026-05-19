@@ -13,11 +13,13 @@ MCP surface to drive the iteration.
 
 > **Status**: the core harness (`@triscope/core`) and MCP server
 > (`@triscope/mcp`) are used in production by [water3d](https://github.com/tedin7/water3d).
-> The unit-test suite covers motion probes and the Vite telemetry plugin
-> (24 tests, vitest). A full end-to-end smoke (`examples/ocean-galleon`)
-> boots Vite + headed Chromium, validates fps + knob propagation +
-> WebGPU-canvas readback, and runs in CI under xvfb. Heading for **0.1.0**;
-> see [`ROADMAP`](#roadmap-to-010) below.
+> The unit-test suite covers the Element composer, telemetry plugin,
+> motion probes, source-tagger, knob editor, lab DOM, reference-image
+> diff (mean-abs + SSIM), CLI helpers, and the project scaffolder —
+> 262 tests across all four packages (vitest). A full end-to-end smoke
+> (`examples/ocean-galleon`) boots Vite + headed Chromium, validates fps
+> + knob propagation + WebGPU-canvas readback, and runs in CI under
+> xvfb. Heading for **0.1.0**; see [`ROADMAP`](#roadmap-to-010) below.
 
 ## Quickstart
 
@@ -213,7 +215,11 @@ exact MCP tool call + Node error message — most fixes will be small.
 
 - [x] `@triscope/core` Element contract + harness + Vite plugin
 - [x] `@triscope/mcp` capture/diff/knob/telemetry tools + supervisor + health
-- [x] vitest suite (motion probes + Vite plugin + composer, 33 tests)
+- [x] vitest suite — 262 tests across core/cli/mcp/create-triscope:
+      Element composer, telemetry plugin, motion probes, source-tagger,
+      knob editor, lab DOM, reference-image diff (mean-abs + SSIM),
+      MCP logger + browser pool helpers, CLI commands (state/list/
+      auto-capture/init/mcp), `parse-flags`, project scaffolder
 - [x] `examples/ocean-galleon` runnable from a fresh clone
 - [x] `triscope init` (wired to `create-triscope`)
 - [x] `@triscope/mcp` ported to TypeScript with zod-validated tool args
@@ -227,7 +233,9 @@ exact MCP tool call + Node error message — most fixes will be small.
 - [x] **`mcp__triscope__auto_tune`** — golden-section knob convergence on SSIM vs reference
 - [x] **Snapshot/restore via git tags** (per [`docs/design.md`](./docs/design.md))
 - [x] **`composeElements`** — multi-element labs with namespaced cameras/knobs/probes
-- [ ] CI revival (build → typecheck order, xvfb smoke, npm publish gate)
+- [x] CI revival — `.github/workflows/ci.yml`: typecheck + unit tests
+      with coverage on every PR, and the `ocean-galleon` smoke under
+      `xvfb` against a real Chromium build
 - [ ] npm publish + tagged release
 
 ## License

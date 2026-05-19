@@ -3,6 +3,7 @@ dist/
 build/
 .vite/
 .cache/
+coverage/
 
 # logs
 *.log

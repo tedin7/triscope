@@ -51,16 +51,12 @@ describe('runInit (in-process)', () => {
     }
   });
 
-  it('emits a "refusing" warning when target exists and is non-empty (then attempts spawn fallback)', async () => {
-    // Source-of-record note: runInit's `process.exit(2)` here lives inside
-    // a try/catch that swallows our spy's synthetic throw. The behaviourally
-    // observable signal is therefore the console.error — the SUBPROCESS
-    // test below catches the actual exit code, this one pins the message.
+  it('exits 2 with "refusing" when target exists and is non-empty', async () => {
     const target = join(tmpdir(), `triscope-init-nonempty-${process.pid}-${Date.now()}`);
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, 'sentinel'), 'x');
     try {
-      await runInit({ dir: target }).catch(() => {});
+      await expect(runInit({ dir: target })).rejects.toThrow(/exit:2/);
       expect(errSpy).toHaveBeenCalledWith(expect.stringMatching(/refusing/));
     } finally {
       rmSync(target, { recursive: true, force: true });

@@ -10,11 +10,13 @@
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
     "vitest": "^2.1.9"
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=html"
   },
   "keywords": ["triscope", "scaffold", "create", "three.js", "webgpu"]
 }

@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^25.0.0",
     "three": "^0.176.0",
     "typescript": "^5.6.0",
@@ -42,7 +43,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=html"
   },
   "keywords": [
     "three.js",

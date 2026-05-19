@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Concurrency: cancel in-flight runs on the same PR/branch so a force-push
+# doesn't pile up workers.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast lane: typecheck + unit tests on every commit. No browser.
+  # Most regressions land here.
+  unit:
+    name: typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `@triscope/core` must build before downstream typechecks read its
+      # generated d.ts files. Other workspaces have no inter-dep build order.
+      - name: Build core (produces d.ts for downstream typecheck)
+        run: npm run build --workspace=@triscope/core
+
+      - name: Typecheck (all workspaces with `typecheck` script)
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            packages/*/coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Slow lane: end-to-end headed-Chromium smoke against the reference
+  # ocean-galleon example. Uses xvfb so a real display exists for WebGPU.
+  # Runs in parallel with the unit job but is required for merge — this is
+  # what catches harness/runtime regressions the unit tests can't see.
+  smoke:
+    name: end-to-end smoke (xvfb + chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system Chromium + xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends chromium-browser xvfb
+          # Some Ubuntu images install Chromium as the `chromium` binary,
+          # others as `chromium-browser`. Symlink so CHROME_BIN works either way.
+          if ! command -v chromium >/dev/null && command -v chromium-browser >/dev/null; then
+            sudo ln -sf "$(command -v chromium-browser)" /usr/local/bin/chromium
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build core
+        run: npm run build --workspace=@triscope/core
+
+      - name: Run example smoke under xvfb
+        env:
+          CHROME_BIN: chromium
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+            npm run smoke --workspace=@triscope/example-ocean-galleon
+
+      - name: Upload smoke artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-artefacts
+          path: |
+            /tmp/*-smoke-*.png
+            /tmp/*-state.json
+          if-no-files-found: ignore
+          retention-days: 7
