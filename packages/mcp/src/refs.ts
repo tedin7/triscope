@@ -47,11 +47,11 @@ export function setReference({ cwd, element, camera, path, base64 }: { cwd: stri
   return { path: dest, bytes: bytes.length };
 }
 
-function decodePng(buffer) {
+export function decodePng(buffer) {
   return PNG.sync.read(buffer);
 }
 
-function nearestNeighborResize(src, targetW, targetH) {
+export function nearestNeighborResize(src, targetW, targetH) {
   if (src.width === targetW && src.height === targetH) return src;
   const dst = new PNG({ width: targetW, height: targetH });
   for (let y = 0; y < targetH; y++) {
@@ -69,7 +69,7 @@ function nearestNeighborResize(src, targetW, targetH) {
   return dst;
 }
 
-function composeSideBySide(left, right) {
+export function composeSideBySide(left, right) {
   // Match heights to the smaller of the two so we don't grow the payload,
   // then concatenate horizontally with a 4-px black separator.
   const h = Math.min(left.height, right.height);
@@ -92,7 +92,7 @@ function composeSideBySide(left, right) {
   return out;
 }
 
-function meanAbsDiff(a, b) {
+export function meanAbsDiff(a, b) {
   // Resize to a common 256x256 grid to keep the metric cheap and
   // resolution-independent.
   const W = 256;
@@ -126,7 +126,7 @@ function meanAbsDiff(a, b) {
  * noisy for an optimizer (chases pixel-level glitter), SSIM tracks the
  * actual structure of what the human sees.
  */
-function ssim(a, b): number {
+export function ssim(a, b): number {
   const W = 256;
   const H = 256;
   const A = nearestNeighborResize(a, W, H);

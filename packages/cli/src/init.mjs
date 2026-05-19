@@ -9,7 +9,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // In a hoisted monorepo install, create-triscope sits next to cli inside
 // the same node_modules root. In a published install, it lives at
 // `<consumer>/node_modules/create-triscope`. We try both.
-function locateScaffolderBin() {
+export function locateScaffolderBin() {
   const candidates = [
     // monorepo / workspace layout (cli/src/init.mjs → ../../create-triscope)
     resolve(HERE, '../../create-triscope/bin/create.mjs'),

@@ -86,9 +86,9 @@ export function installSourceTagPatch(): boolean {
   return true;
 }
 
-const FRAME_RE = /at (?:(?<fn>[^(]+?) \()?(?<url>[^()]+?):(?<line>\d+):(?<col>\d+)\)?$/;
+export const FRAME_RE = /at (?:(?<fn>[^(]+?) \()?(?<url>[^()]+?):(?<line>\d+):(?<col>\d+)\)?$/;
 
-const SKIP_PATTERNS = [
+export const SKIP_PATTERNS = [
   /\/node_modules\//,
   /\/three\//,
   /\/@triscope\//,
@@ -98,7 +98,7 @@ const SKIP_PATTERNS = [
   /^(?:webpack|vite):/,
 ];
 
-function parseUserStack(raw: string, max = 8): SourceFrame[] {
+export function parseUserStack(raw: string, max = 8): SourceFrame[] {
   const out: SourceFrame[] = [];
   for (const lineStr of raw.split('\n')) {
     const m = FRAME_RE.exec(lineStr.trim());
@@ -116,11 +116,11 @@ function parseUserStack(raw: string, max = 8): SourceFrame[] {
   return out;
 }
 
-function stripUrl(u: string): string {
+export function stripUrl(u: string): string {
   return u.replace(/[?#].*$/, '');
 }
 
-function extractMaterialHint(material: unknown): { color?: string; map?: string | null } {
+export function extractMaterialHint(material: unknown): { color?: string; map?: string | null } {
   const m = material as {
     color?: { getHexString?: () => string };
     map?: { name?: string; source?: { data?: { src?: string } } };

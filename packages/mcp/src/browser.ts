@@ -27,7 +27,7 @@ const DEFAULT_CHROME_ARGS = [
   '--no-default-browser-check',
 ];
 
-function parseExtraChromeArgs(): string[] {
+export function parseExtraChromeArgs(): string[] {
   const raw = process.env.TRISCOPE_CHROME_ARGS ?? '';
   if (!raw.trim()) return [];
   // Keep this intentionally simple: env-configured args are whitespace split.
@@ -36,7 +36,7 @@ function parseExtraChromeArgs(): string[] {
   return raw.trim().split(/\s+/).filter(Boolean);
 }
 
-function tailLines(text: string, maxLines = 24): string {
+export function tailLines(text: string, maxLines = 24): string {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   return lines.slice(-maxLines).join('\n');
 }
@@ -88,7 +88,7 @@ function cdpClient(ws) {
  *      /Applications/Google Chrome.app; Linux: PATH-relative `chromium`)
  */
 
-function inferGraphicalEnv(): NodeJS.ProcessEnv {
+export function inferGraphicalEnv(): NodeJS.ProcessEnv {
   if (process.platform !== 'linux') return process.env;
 
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -109,7 +109,7 @@ function inferGraphicalEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function defaultChromeBinary(): string {
+export function defaultChromeBinary(): string {
   if (process.platform === 'win32') {
     // Windows users normally install Chrome under Program Files. We don't
     // touch the filesystem to verify — Chrome's own startup will surface

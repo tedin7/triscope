@@ -14,7 +14,7 @@ import { homedir } from 'node:os';
 const SERVER_NAME = 'triscope';
 const DEFAULT_URL = 'http://localhost:5173';
 
-function resolveServerBin() {
+export function resolveServerBin() {
   // Try the workspace sibling first (monorepo dev case).
   const here = dirname(fileURLToPath(import.meta.url));
   const sibling = resolve(here, '../../mcp/bin/triscope-mcp.mjs');
@@ -30,7 +30,7 @@ function resolveServerBin() {
   }
 }
 
-function resolveCliBin() {
+export function resolveCliBin() {
   // This module lives in packages/cli/src/mcp.mjs; the bin is at ../bin/triscope.mjs.
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, '../bin/triscope.mjs');
@@ -41,7 +41,7 @@ function triscopeOnPath() {
   return r.status === 0;
 }
 
-function autoCaptureCommand() {
+export function autoCaptureCommand() {
   // Use bare `triscope` if it's on PATH (npm i -g'd), otherwise the
   // absolute path to this CLI bin (monorepo / file-dep installs).
   const cmd = triscopeOnPath() ? 'triscope' : `node ${resolveCliBin()}`;
@@ -64,7 +64,7 @@ function isTriscopeRegistered() {
   return /^triscope:/m.test(r.stdout?.toString?.() ?? '');
 }
 
-function writeProjectMcpJson(bin, url) {
+export function writeProjectMcpJson(bin, url) {
   const path = join(process.cwd(), '.mcp.json');
   let existing = {};
   if (existsSync(path)) {
@@ -80,7 +80,7 @@ function writeProjectMcpJson(bin, url) {
   return path;
 }
 
-function removeFromProjectMcpJson() {
+export function removeFromProjectMcpJson() {
   const path = join(process.cwd(), '.mcp.json');
   if (!existsSync(path)) return null;
   const data = JSON.parse(readFileSync(path, 'utf8'));
@@ -92,7 +92,7 @@ function removeFromProjectMcpJson() {
 
 // Hook config — same shape across user/project scope. The "_triscope" tag
 // lets uninstall find and remove our entry without touching unrelated hooks.
-function triscopeHookSpec() {
+export function triscopeHookSpec() {
   return {
     matcher: 'Edit|Write',
     _triscope: true,
@@ -100,14 +100,14 @@ function triscopeHookSpec() {
   };
 }
 
-function settingsPathForScope(scope) {
+export function settingsPathForScope(scope) {
   if (scope === 'project') {
     return join(process.cwd(), '.claude', 'settings.local.json');
   }
   return join(homedir(), '.claude', 'settings.json');
 }
 
-function mergeHook(scope) {
+export function mergeHook(scope) {
   const path = settingsPathForScope(scope);
   mkdirSync(dirname(path), { recursive: true });
   let data = {};
@@ -129,7 +129,7 @@ function mergeHook(scope) {
   return { path, added: !already };
 }
 
-function unmergeHook(scope) {
+export function unmergeHook(scope) {
   const path = settingsPathForScope(scope);
   if (!existsSync(path)) return { path, removed: false };
   let data;

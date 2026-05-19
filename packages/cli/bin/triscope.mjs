@@ -7,6 +7,7 @@ import { runSmoke } from '../src/smoke.mjs';
 import { runMcp } from '../src/mcp.mjs';
 import { runAutoCapture } from '../src/auto-capture.mjs';
 import { runInit } from '../src/init.mjs';
+import { parseFlags } from '../src/parse-flags.mjs';
 
 const [, , subcommand, ...rest] = process.argv;
 
@@ -48,25 +49,6 @@ EXAMPLES
   triscope smoke ship
   triscope smoke --url http://localhost:5174/labs/scene.html
 `;
-
-function parseFlags(argv) {
-  const flags = {};
-  const positional = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--help' || a === '-h') flags.help = true;
-    else if (a === '--project') flags.project = true;
-    else if (a === '--no-hook') flags['no-hook'] = true;
-    else if (a === '--url') flags.url = argv[++i];
-    else if (a === '--file') flags.file = argv[++i];
-    else if (a === '--port') flags.port = argv[++i];
-    else if (a === '--screenshot') flags.screenshot = argv[++i];
-    else if (a === '--install') flags.install = true;
-    else if (a.startsWith('--')) flags[a.slice(2)] = argv[++i];
-    else positional.push(a);
-  }
-  return { flags, positional };
-}
 
 async function main() {
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {

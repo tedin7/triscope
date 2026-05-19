@@ -41,7 +41,7 @@ export interface InspectSelection {
   uuid: string;
 }
 
-function buildParentChain(obj: THREE.Object3D): string[] {
+export function buildParentChain(obj: THREE.Object3D): string[] {
   const chain: string[] = [];
   let cur: THREE.Object3D | null = obj;
   while (cur) {
@@ -58,7 +58,7 @@ function buildParentChain(obj: THREE.Object3D): string[] {
  * #e6dcc0>` so the user can still grep — even when no names are set on
  * the scene tree.
  */
-function describeObj(obj: THREE.Object3D): string {
+export function describeObj(obj: THREE.Object3D): string {
   if (obj.name) return obj.name;
   const ctor = obj.constructor?.name ?? '?';
   const mesh = obj as THREE.Mesh;
@@ -109,7 +109,7 @@ export interface InspectInit {
  * restore the selection across full-reload — the Mesh object identity
  * changes after reload but the source location is stable.
  */
-function findMeshBySource(
+export function findMeshBySource(
   scene: THREE.Scene,
   source: SourceTag['source'] | null,
 ): THREE.Object3D | null {

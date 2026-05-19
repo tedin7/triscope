@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-function readProjectName(cwd) {
+export function readProjectName(cwd) {
   try {
     const pkgPath = join(cwd, 'package.json');
     if (!existsSync(pkgPath)) return 'triscope-project';
@@ -33,9 +33,9 @@ function readProjectName(cwd) {
   }
 }
 
-const RELEVANT = /\b(triscope|lab|scene|element|shader|mesh)/i;
+export const RELEVANT = /\b(triscope|lab|scene|element|shader|mesh)/i;
 
-function fmt(n) {
+export function fmt(n) {
   if (!Number.isFinite(n)) return '?';
   return Number(n).toFixed(2);
 }

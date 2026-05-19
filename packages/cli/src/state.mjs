@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-function readProjectName(cwd) {
+export function readProjectName(cwd) {
   try {
     const pkgPath = join(cwd, 'package.json');
     if (!existsSync(pkgPath)) return 'triscope-project';
@@ -14,7 +14,7 @@ function readProjectName(cwd) {
   }
 }
 
-function applyPath(data, path) {
+export function applyPath(data, path) {
   if (!path) return data;
   const segs = path.replace(/^\./, '').split('.').filter(Boolean);
   let cur = data;

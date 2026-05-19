@@ -5,13 +5,13 @@
 // `__PROJECT_NAME__` substitution in package.json and the example skill.
 import { mkdirSync, copyFileSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const TEMPLATE = resolve(__dirname, '../template');
 
-function copyDir(src, dst, subs) {
+export function copyDir(src, dst, subs) {
   mkdirSync(dst, { recursive: true });
   for (const entry of readdirSync(src)) {
     const sPath = join(src, entry);
@@ -34,7 +34,7 @@ function copyDir(src, dst, subs) {
   }
 }
 
-function main() {
+export function main() {
   const arg = process.argv[2];
   if (!arg) {
     console.error('Usage: npm init triscope <project-dir>');
@@ -59,4 +59,7 @@ function main() {
   console.log('  npx triscope list');
 }
 
-main();
+// Only auto-run when invoked as a script (not when imported by tests).
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main();
+}
