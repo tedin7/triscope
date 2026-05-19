@@ -12,8 +12,9 @@
  * object's geometry (no per-frame allocation). Click-selection persists
  * the same overlay with a different color until the next click.
  */
-import * as THREE from 'three/webgpu';
+
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as THREE from 'three/webgpu';
 import type { SourceTag } from './source-tag.js';
 
 export interface InspectSelection {
@@ -67,7 +68,9 @@ export function describeObj(obj: THREE.Object3D): string {
   try {
     const mat = mesh.material as { color?: { getHexString?: () => string } };
     if (mat?.color?.getHexString) color = '#' + mat.color.getHexString();
-  } catch { /* color extraction is best-effort */ }
+  } catch {
+    /* color extraction is best-effort */
+  }
   if (geom || color) {
     const parts = [geom, color].filter(Boolean).join(' ');
     return `${ctor}<${parts}>`;
@@ -82,7 +85,11 @@ export interface InspectMode {
   /** Renders the solo view for this frame. Call instead of grid renderAll(). */
   render(): void;
   /** Pull current hover/selection state. */
-  state(): { hover: InspectSelection | null; selection: InspectSelection | null; selections: InspectSelection[] };
+  state(): {
+    hover: InspectSelection | null;
+    selection: InspectSelection | null;
+    selections: InspectSelection[];
+  };
   dispose(): void;
 }
 
@@ -175,10 +182,18 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
   // for the persistent click-selection. `raycast` is a no-op so the
   // overlay never grabs subsequent picks.
   const hoverMat = new THREE.MeshBasicNodeMaterial({
-    color: 0x66ff66, wireframe: true, transparent: true, opacity: 0.9, depthTest: false,
+    color: 0x66ff66,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
   });
   const selectMat = new THREE.MeshBasicNodeMaterial({
-    color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.95, depthTest: false,
+    color: 0x00ffff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
   });
   const overlay = new THREE.Mesh(new THREE.BufferGeometry(), hoverMat);
   overlay.renderOrder = 999;
@@ -206,7 +221,11 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
   const selectionsByUuid = new Map<string, InspectSelection>();
   const extraOverlaysByUuid = new Map<string, THREE.Mesh>();
   const extraOverlayMat = new THREE.MeshBasicNodeMaterial({
-    color: 0x00ccff, wireframe: true, transparent: true, opacity: 0.75, depthTest: false,
+    color: 0x00ccff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.75,
+    depthTest: false,
   });
 
   function eventToNdc(ev: MouseEvent): void {
@@ -227,7 +246,11 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     return null;
   }
 
-  function selectionFrom(hit: { obj: THREE.Object3D; distance: number; point: THREE.Vector3 }): InspectSelection {
+  function selectionFrom(hit: {
+    obj: THREE.Object3D;
+    distance: number;
+    point: THREE.Vector3;
+  }): InspectSelection {
     const tag = (hit.obj.userData?.__tris as SourceTag | undefined) ?? null;
     return {
       camera: cameraName,
@@ -312,11 +335,14 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
   function copySelection(sel: InspectSelection): void {
     const src = sel.source;
     const fileLine = src ? `${src.file.split('/').slice(-1)[0]}:${src.line}` : `(uuid=${sel.uuid})`;
-    const desc = sel.name ?? `${sel.type}<${[sel.geometry, sel.material?.color].filter(Boolean).join(' ')}>`;
+    const desc =
+      sel.name ?? `${sel.type}<${[sel.geometry, sel.material?.color].filter(Boolean).join(' ')}>`;
     const pos = `(${sel.point.map((n) => n.toFixed(2)).join(',')})`;
     const chain = sel.parentChain?.length ? ` chain=${sel.parentChain.join('>')}` : '';
     const text = `${fileLine} — ${desc} @ ${pos}${chain}`;
-    try { (navigator as any).clipboard?.writeText(text); } catch {}
+    try {
+      (navigator as any).clipboard?.writeText(text);
+    } catch {}
   }
 
   function onMouseDown(ev: MouseEvent): void {
@@ -332,7 +358,9 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
         selectOverlay.visible = false;
         clearMultiOverlays();
         init.onSelectionChange(null, []);
-        try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
+        try {
+          window.localStorage.removeItem(STORAGE_KEY);
+        } catch {}
       }
       return;
     }
@@ -392,15 +420,20 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
             init.onSelectionChange(selectionHit, [...selectionsByUuid.values()]);
             return;
           }
-        } catch { /* corrupt stored selection — drop it */
-          try { window.localStorage.removeItem(STORAGE_KEY); } catch {}
+        } catch {
+          /* corrupt stored selection — drop it */
+          try {
+            window.localStorage.removeItem(STORAGE_KEY);
+          } catch {}
           return;
         }
         if (attempts < maxAttempts) setTimeout(tryRestore, 100);
       };
       setTimeout(tryRestore, 100);
     }
-  } catch { /* localStorage unavailable — silent */ }
+  } catch {
+    /* localStorage unavailable — silent */
+  }
 
   function render(): void {
     controls.update();
@@ -437,7 +470,11 @@ export function createInspectMode(init: InspectInit & { cameraName?: string }): 
     cameraName,
     camera,
     render,
-    state: () => ({ hover: hoverHit, selection: selectionHit, selections: [...selectionsByUuid.values()] }),
+    state: () => ({
+      hover: hoverHit,
+      selection: selectionHit,
+      selections: [...selectionsByUuid.values()],
+    }),
     dispose,
   };
 }

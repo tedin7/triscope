@@ -23,7 +23,16 @@ describe('parseFlags — boolean flags', () => {
 
 describe('parseFlags — value flags consume the next token', () => {
   it('--url, --file, --port, --screenshot all take a value', () => {
-    const { flags } = parseFlags(['--url', 'http://x', '--file', '/a', '--port', '5500', '--screenshot', 's.png']);
+    const { flags } = parseFlags([
+      '--url',
+      'http://x',
+      '--file',
+      '/a',
+      '--port',
+      '5500',
+      '--screenshot',
+      's.png',
+    ]);
     expect(flags.url).toBe('http://x');
     expect(flags.file).toBe('/a');
     expect(flags.port).toBe('5500');
@@ -55,7 +64,14 @@ describe('parseFlags — positional vs flag separation', () => {
   });
 
   it('mixed: positional + value-flag + boolean-flag + positional', () => {
-    const r = parseFlags(['smoke', 'ship', '--url', 'http://localhost:5174', '--screenshot', 'out.png']);
+    const r = parseFlags([
+      'smoke',
+      'ship',
+      '--url',
+      'http://localhost:5174',
+      '--screenshot',
+      'out.png',
+    ]);
     expect(r.positional).toEqual(['smoke', 'ship']);
     expect(r.flags.url).toBe('http://localhost:5174');
     expect(r.flags.screenshot).toBe('out.png');

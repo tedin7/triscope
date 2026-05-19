@@ -30,9 +30,21 @@ export function refsMotionPaths(cwd, element, camera) {
   };
 }
 
-export function setReference({ cwd, element, camera, path, base64 }: { cwd: string; element: string; camera: string; path?: string; base64?: string }) {
+export function setReference({
+  cwd,
+  element,
+  camera,
+  path,
+  base64,
+}: {
+  cwd: string;
+  element: string;
+  camera: string;
+  path?: string;
+  base64?: string;
+}) {
   if (!element || !camera) throw new Error('element and camera are required');
-  let bytes;
+  let bytes: Buffer;
   if (path) {
     if (!existsSync(path)) throw new Error(`reference file not found: ${path}`);
     bytes = readFileSync(path);
@@ -146,23 +158,28 @@ export function ssim(a, b): number {
   let count = 0;
   for (let wy = 0; wy < H; wy += WIN) {
     for (let wx = 0; wx < W; wx += WIN) {
-      let muA = 0, muB = 0;
-      for (let dy = 0; dy < WIN; dy++) for (let dx = 0; dx < WIN; dx++) {
-        const i = (wy + dy) * W + (wx + dx);
-        muA += lumA[i];
-        muB += lumB[i];
-      }
+      let muA = 0,
+        muB = 0;
+      for (let dy = 0; dy < WIN; dy++)
+        for (let dx = 0; dx < WIN; dx++) {
+          const i = (wy + dy) * W + (wx + dx);
+          muA += lumA[i];
+          muB += lumB[i];
+        }
       muA /= WIN * WIN;
       muB /= WIN * WIN;
-      let varA = 0, varB = 0, covAB = 0;
-      for (let dy = 0; dy < WIN; dy++) for (let dx = 0; dx < WIN; dx++) {
-        const i = (wy + dy) * W + (wx + dx);
-        const da = lumA[i] - muA;
-        const db = lumB[i] - muB;
-        varA += da * da;
-        varB += db * db;
-        covAB += da * db;
-      }
+      let varA = 0,
+        varB = 0,
+        covAB = 0;
+      for (let dy = 0; dy < WIN; dy++)
+        for (let dx = 0; dx < WIN; dx++) {
+          const i = (wy + dy) * W + (wx + dx);
+          const da = lumA[i] - muA;
+          const db = lumB[i] - muB;
+          varA += da * da;
+          varB += db * db;
+          covAB += da * db;
+        }
       varA /= WIN * WIN - 1;
       varB /= WIN * WIN - 1;
       covAB /= WIN * WIN - 1;
@@ -185,7 +202,9 @@ export function composeFilmstrip(frameBase64s: string[], opts: { sep?: number } 
   const sep = opts.sep ?? 2;
   const frames = frameBase64s.map((b) => decodePng(Buffer.from(stripPrefix(b), 'base64')));
   const h = Math.min(...frames.map((f) => f.height));
-  const resized = frames.map((f) => nearestNeighborResize(f, Math.round((f.width * h) / f.height), h));
+  const resized = frames.map((f) =>
+    nearestNeighborResize(f, Math.round((f.width * h) / f.height), h),
+  );
   const totalW = resized.reduce((acc, f, i) => acc + f.width + (i > 0 ? sep : 0), 0);
   const out = new PNG({ width: totalW, height: h });
   for (let i = 0; i < out.data.length; i += 4) out.data[i + 3] = 255;
@@ -222,11 +241,18 @@ export function setReferenceMotion({ cwd, element, camera, frameBase64s, meta })
   const { filmstrip: fpath, meta: mpath } = refsMotionPaths(cwd, element, camera);
   mkdirSync(dirname(fpath), { recursive: true });
   writeFileSync(fpath, filmstrip);
-  writeFileSync(mpath, JSON.stringify({
-    frames: frameBase64s.length,
-    ...meta,
-    savedAt: new Date().toISOString(),
-  }, null, 2));
+  writeFileSync(
+    mpath,
+    JSON.stringify(
+      {
+        frames: frameBase64s.length,
+        ...meta,
+        savedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
   return { filmstripPath: fpath, metaPath: mpath, frames: frameBase64s.length };
 }
 
@@ -258,7 +284,9 @@ export function diffReferenceMotion({ cwd, element, camera, currentFrames }) {
   let meta = null;
   try {
     meta = existsSync(mpath) ? JSON.parse(readFileSync(mpath, 'utf8')) : null;
-  } catch { /* tolerate corrupt meta */ }
+  } catch {
+    /* tolerate corrupt meta */
+  }
   const motionDiff = meanAbsDiff(refFilmstrip, curFilmstrip);
   return {
     refFilmstripPath: fpath,
@@ -283,8 +311,8 @@ export function diffReference({ cwd, element, camera, currentBase64 }) {
   return {
     camera,
     refPath,
-    meanAbsDiff: meanAbs,        // 0 = identical, 255 = max difference
-    ssim: ssimScore,             // 1 = identical, lower = more different
+    meanAbsDiff: meanAbs, // 0 = identical, 255 = max difference
+    ssim: ssimScore, // 1 = identical, lower = more different
     compositeBase64: compositeBuf.toString('base64'),
   };
 }

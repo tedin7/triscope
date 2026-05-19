@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { composeElements } from '../src/compose.js';
 import type { Element, MountContext, MountHandle } from '../src/types.js';
 
@@ -9,11 +9,17 @@ import type { Element, MountContext, MountHandle } from '../src/types.js';
  * composite routes correctly.
  */
 
-function fakeElement(name: string, opts: {
-  cameras?: Record<string, { position: [number, number, number]; target: [number, number, number] }>;
-  knobs?: Record<string, any>;
-  bounds?: { min: [number, number, number]; max: [number, number, number] };
-} = {}): Element & { onKnobCalls: Array<[string, unknown]>; mountCount: number } {
+function fakeElement(
+  name: string,
+  opts: {
+    cameras?: Record<
+      string,
+      { position: [number, number, number]; target: [number, number, number] }
+    >;
+    knobs?: Record<string, any>;
+    bounds?: { min: [number, number, number]; max: [number, number, number] };
+  } = {},
+): Element & { onKnobCalls: Array<[string, unknown]>; mountCount: number } {
   const onKnobCalls: Array<[string, unknown]> = [];
   let mountCount = 0;
   const el: Element & { onKnobCalls: typeof onKnobCalls; mountCount: number } = {
@@ -29,7 +35,9 @@ function fakeElement(name: string, opts: {
         userData: { tag: `mounted-${name}` },
       };
     },
-    onKnob: (_h, key, value) => { onKnobCalls.push([key, value]); },
+    onKnob: (_h, key, value) => {
+      onKnobCalls.push([key, value]);
+    },
     telemetry: () => ({ from: name }),
     motionProbes: {
       pulse: () => 1.5,
@@ -54,21 +62,31 @@ describe('composeElements', () => {
 
   it('namespaces cameras with <elName>.<camName>', () => {
     const a = fakeElement('ship', { cameras: { bow: { position: [1, 0, 0], target: [0, 0, 0] } } });
-    const b = fakeElement('water', { cameras: { top: { position: [0, 5, 0], target: [0, 0, 0] } } });
+    const b = fakeElement('water', {
+      cameras: { top: { position: [0, 5, 0], target: [0, 0, 0] } },
+    });
     const composite = composeElements([a, b]);
     expect(Object.keys(composite.cameras).sort()).toEqual(['ship.bow', 'water.top']);
   });
 
   it('namespaces knobs', () => {
-    const a = fakeElement('ship', { knobs: { windPressure: { type: 'number', min: 0, max: 2, default: 0.6 } } });
-    const b = fakeElement('water', { knobs: { depth: { type: 'number', min: 0, max: 100, default: 50 } } });
+    const a = fakeElement('ship', {
+      knobs: { windPressure: { type: 'number', min: 0, max: 2, default: 0.6 } },
+    });
+    const b = fakeElement('water', {
+      knobs: { depth: { type: 'number', min: 0, max: 100, default: 50 } },
+    });
     const composite = composeElements([a, b]);
     expect(Object.keys(composite.knobs ?? {}).sort()).toEqual(['ship.windPressure', 'water.depth']);
   });
 
   it('routes onKnob to the right child by namespace', () => {
-    const a = fakeElement('ship', { knobs: { windPressure: { type: 'number', min: 0, max: 2, default: 0.6 } } });
-    const b = fakeElement('water', { knobs: { depth: { type: 'number', min: 0, max: 100, default: 50 } } });
+    const a = fakeElement('ship', {
+      knobs: { windPressure: { type: 'number', min: 0, max: 2, default: 0.6 } },
+    });
+    const b = fakeElement('water', {
+      knobs: { depth: { type: 'number', min: 0, max: 100, default: 50 } },
+    });
     const composite = composeElements([a, b]);
     const ctx = fakeCtx();
     const handle = composite.mount({ parent: { isObject3D: true } as any, ctx });

@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   autoCaptureCommand,
   mergeHook,
@@ -21,7 +21,7 @@ describe('resolveServerBin / resolveCliBin', () => {
     expect(bin).not.toBeNull();
     expect(bin).toMatch(/triscope-mcp\.mjs$/);
   });
-  it('resolveCliBin points at this package\'s bin/triscope.mjs', () => {
+  it("resolveCliBin points at this package's bin/triscope.mjs", () => {
     expect(resolveCliBin()).toMatch(/bin\/triscope\.mjs$/);
   });
 });
@@ -58,17 +58,26 @@ describe('runMcp dispatcher', () => {
     process.chdir(dir);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      await runMcp({ action: 'install', scope: 'project', url: 'http://localhost:9999', withHook: true });
+      await runMcp({
+        action: 'install',
+        scope: 'project',
+        url: 'http://localhost:9999',
+        withHook: true,
+      });
       const mcpJson = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8'));
       expect(mcpJson.mcpServers.triscope.command).toBe('node');
       expect(mcpJson.mcpServers.triscope.env.TRISCOPE_URL).toBe('http://localhost:9999');
       // Hook merged into the project-local settings file.
-      const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
+      const settings = JSON.parse(
+        readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'),
+      );
       expect(settings.hooks.PostToolUse.some((e) => e._triscope === true)).toBe(true);
     } finally {
       process.chdir(origCwd);
       log.mockRestore();
-      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
     }
   });
 
@@ -85,7 +94,9 @@ describe('runMcp dispatcher', () => {
     } finally {
       process.chdir(origCwd);
       log.mockRestore();
-      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
     }
   });
 
@@ -101,12 +112,16 @@ describe('runMcp dispatcher', () => {
       await runMcp({ action: 'uninstall', scope: 'project' });
       const mcpJson = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8'));
       expect(mcpJson.mcpServers.triscope).toBeUndefined();
-      const settings = JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
+      const settings = JSON.parse(
+        readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'),
+      );
       expect(settings.hooks.PostToolUse.some((e) => e._triscope === true)).toBe(false);
     } finally {
       process.chdir(origCwd);
       log.mockRestore();
-      try { rmSync(dir, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
     }
   });
 });
@@ -124,7 +139,9 @@ describe('triscopeHookSpec', () => {
 
 describe('settingsPathForScope', () => {
   it('project scope → cwd/.claude/settings.local.json', () => {
-    expect(settingsPathForScope('project')).toBe(join(process.cwd(), '.claude', 'settings.local.json'));
+    expect(settingsPathForScope('project')).toBe(
+      join(process.cwd(), '.claude', 'settings.local.json'),
+    );
   });
   it('user scope → homedir/.claude/settings.json', () => {
     expect(settingsPathForScope('user')).toBe(join(homedir(), '.claude', 'settings.json'));
@@ -142,7 +159,9 @@ describe('writeProjectMcpJson / removeFromProjectMcpJson', () => {
   });
   afterEach(() => {
     process.chdir(origCwd);
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
   });
 
   it('write creates a new .mcp.json with the triscope entry', () => {
@@ -155,7 +174,10 @@ describe('writeProjectMcpJson / removeFromProjectMcpJson', () => {
   });
 
   it('write merges into an existing .mcp.json without losing other entries', () => {
-    writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    writeFileSync(
+      join(dir, '.mcp.json'),
+      JSON.stringify({ mcpServers: { other: { command: 'x' } } }),
+    );
     writeProjectMcpJson('/bin/srv.mjs', 'http://x');
     const data = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8'));
     expect(data.mcpServers.other.command).toBe('x');
@@ -172,7 +194,10 @@ describe('writeProjectMcpJson / removeFromProjectMcpJson', () => {
 
   it('remove returns null when there is nothing to remove', () => {
     expect(removeFromProjectMcpJson()).toBeNull();
-    writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    writeFileSync(
+      join(dir, '.mcp.json'),
+      JSON.stringify({ mcpServers: { other: { command: 'x' } } }),
+    );
     expect(removeFromProjectMcpJson()).toBeNull();
   });
 });
@@ -188,7 +213,9 @@ describe('mergeHook / unmergeHook (project scope, isolated cwd)', () => {
   });
   afterEach(() => {
     process.chdir(origCwd);
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
   });
 
   it('first mergeHook creates the settings file and reports added=true', () => {
@@ -230,9 +257,14 @@ describe('mergeHook / unmergeHook (project scope, isolated cwd)', () => {
 
   it('mergeHook preserves unrelated PostToolUse entries', () => {
     mkdirSync(join(dir, '.claude'), { recursive: true });
-    writeFileSync(join(dir, '.claude', 'settings.local.json'), JSON.stringify({
-      hooks: { PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo other' }] }] },
-    }));
+    writeFileSync(
+      join(dir, '.claude', 'settings.local.json'),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo other' }] }],
+        },
+      }),
+    );
     mergeHook('project');
     const data = JSON.parse(readFileSync(join(dir, '.claude', 'settings.local.json'), 'utf8'));
     expect(data.hooks.PostToolUse).toHaveLength(2);

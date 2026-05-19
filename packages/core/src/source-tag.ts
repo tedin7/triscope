@@ -63,7 +63,9 @@ export function installSourceTagPatch(): boolean {
     try {
       const raw = new Error().stack ?? '';
       stack = parseUserStack(raw);
-    } catch { /* stack capture is best-effort */ }
+    } catch {
+      /* stack capture is best-effort */
+    }
     const source = stack[0] ?? null;
     for (const child of children) {
       if (!child) continue;
@@ -126,7 +128,9 @@ export function extractMaterialHint(material: unknown): { color?: string; map?: 
     map?: { name?: string; source?: { data?: { src?: string } } };
   };
   const hint: { color?: string; map?: string | null } = {};
-  try { if (m?.color?.getHexString) hint.color = '#' + m.color.getHexString(); } catch {}
+  try {
+    if (m?.color?.getHexString) hint.color = '#' + m.color.getHexString();
+  } catch {}
   try {
     const tex = m?.map;
     if (tex) hint.map = tex.name || tex.source?.data?.src || null;

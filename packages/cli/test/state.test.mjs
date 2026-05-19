@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyPath, readProjectName, runState } from '../src/state.mjs';
 
 describe('applyPath', () => {
@@ -30,7 +30,11 @@ describe('readProjectName', () => {
     dir = join(tmpdir(), `triscope-cli-state-test-${process.pid}-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
   });
-  afterEach(() => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+  afterEach(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('falls back to triscope-project when no package.json', () => {
     expect(readProjectName(dir)).toBe('triscope-project');
@@ -60,15 +64,21 @@ describe('runState', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
     origCwd = process.cwd();
     process.chdir(dir);
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit:${code}`); });
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit:${code}`);
+    });
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.chdir(origCwd);
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
-    try { rmSync(join(tmpdir(), 'demo-state.json'), { force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
+    try {
+      rmSync(join(tmpdir(), 'demo-state.json'), { force: true });
+    } catch {}
     exitSpy.mockRestore();
     logSpy.mockRestore();
     errSpy.mockRestore();
@@ -85,7 +95,10 @@ describe('runState', () => {
   });
 
   it('prints scalar values directly, objects as JSON', async () => {
-    writeFileSync(join(tmpdir(), 'demo-state.json'), JSON.stringify({ perf: { fps: 60 }, name: 'ok' }));
+    writeFileSync(
+      join(tmpdir(), 'demo-state.json'),
+      JSON.stringify({ perf: { fps: 60 }, name: 'ok' }),
+    );
     await runState({ path: '.perf.fps' });
     expect(logSpy).toHaveBeenCalledWith(60);
     logSpy.mockClear();

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { mountLabDom } from '../src/lab/dom.js';
 import { LAB_CSS } from '../src/lab/css.js';
+import { mountLabDom } from '../src/lab/dom.js';
 
 function resetDom() {
   document.head.innerHTML = '';

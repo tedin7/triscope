@@ -41,6 +41,9 @@ jobs:
       - name: Typecheck (all workspaces with `typecheck` script)
         run: npm run typecheck --workspaces --if-present
 
+      - name: Lint
+        run: npm run lint
+
       - name: Unit tests with coverage
         run: npm run test:coverage
 

@@ -1,5 +1,5 @@
-import * as THREE from 'three/webgpu';
 import type { Element } from '@triscope/core';
+import * as THREE from 'three/webgpu';
 
 /**
  * Example triscope element: a rotating PBR cube with three exposed knobs.
@@ -23,7 +23,11 @@ export const cube: Element = {
     parent.add(amb);
 
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({ color: '#d8a85a', roughness: 0.4, metalness: 0.1 });
+    const mat = new THREE.MeshStandardMaterial({
+      color: '#d8a85a',
+      roughness: 0.4,
+      metalness: 0.1,
+    });
     const mesh = new THREE.Mesh(geo, mat);
     parent.add(mesh);
 

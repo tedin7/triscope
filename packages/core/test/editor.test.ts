@@ -99,10 +99,15 @@ describe('mountEditor', () => {
 
   it('uses spec.label when present, falls back to key', () => {
     const c = makeContainer();
-    mountEditor(c, {
-      a: { type: 'number', min: 0, max: 1, default: 0, label: 'Alpha' },
-      b: { type: 'number', min: 0, max: 1, default: 0 },
-    }, {}, () => {});
+    mountEditor(
+      c,
+      {
+        a: { type: 'number', min: 0, max: 1, default: 0, label: 'Alpha' },
+        b: { type: 'number', min: 0, max: 1, default: 0 },
+      },
+      {},
+      () => {},
+    );
     const labels = c.querySelectorAll('label');
     const texts = Array.from(labels).map((l) => l.textContent);
     expect(texts).toContain('Alpha');
@@ -112,7 +117,12 @@ describe('mountEditor', () => {
   it('setValue updates number input + output without firing onChange', () => {
     const c = makeContainer();
     const onChange = vi.fn();
-    const { setValue } = mountEditor(c, { g: { type: 'number', min: 0, max: 10, default: 0 } }, {}, onChange);
+    const { setValue } = mountEditor(
+      c,
+      { g: { type: 'number', min: 0, max: 10, default: 0 } },
+      {},
+      onChange,
+    );
     setValue('g', 4.2);
     const input = c.querySelector('input') as HTMLInputElement;
     const out = c.querySelector('output') as HTMLOutputElement;
@@ -130,11 +140,16 @@ describe('mountEditor', () => {
   it('setValue updates color, boolean, and flashes trigger', () => {
     vi.useFakeTimers();
     const c = makeContainer();
-    const { setValue } = mountEditor(c, {
-      tint: { type: 'color', default: '#000000' },
-      on: { type: 'boolean', default: false },
-      fire: { type: 'trigger' },
-    }, {}, () => {});
+    const { setValue } = mountEditor(
+      c,
+      {
+        tint: { type: 'color', default: '#000000' },
+        on: { type: 'boolean', default: false },
+        fire: { type: 'trigger' },
+      },
+      {},
+      () => {},
+    );
     setValue('tint', '#abcdef');
     setValue('on', true);
     setValue('fire', true);
@@ -153,10 +168,15 @@ describe('mountEditor', () => {
 
   it('destroy removes all rendered knob children', () => {
     const c = makeContainer();
-    const { destroy } = mountEditor(c, {
-      a: { type: 'number', min: 0, max: 1, default: 0 },
-      b: { type: 'boolean', default: false },
-    }, {}, () => {});
+    const { destroy } = mountEditor(
+      c,
+      {
+        a: { type: 'number', min: 0, max: 1, default: 0 },
+        b: { type: 'boolean', default: false },
+      },
+      {},
+      () => {},
+    );
     expect(c.children.length).toBe(2);
     destroy();
     expect(c.children.length).toBe(0);
@@ -164,12 +184,17 @@ describe('mountEditor', () => {
 
   it('formats numbers: int → integer, |v|<1 → 3 decimals, [1,100) → 2, ≥100 → 1', () => {
     const c = makeContainer();
-    mountEditor(c, {
-      i: { type: 'int', min: 0, max: 999, default: 5 },
-      s: { type: 'number', min: 0, max: 1, default: 0.123456 },
-      m: { type: 'number', min: 0, max: 50, default: 12.345 },
-      l: { type: 'number', min: 0, max: 1000, default: 250.789 },
-    }, {}, () => {});
+    mountEditor(
+      c,
+      {
+        i: { type: 'int', min: 0, max: 999, default: 5 },
+        s: { type: 'number', min: 0, max: 1, default: 0.123456 },
+        m: { type: 'number', min: 0, max: 50, default: 12.345 },
+        l: { type: 'number', min: 0, max: 1000, default: 250.789 },
+      },
+      {},
+      () => {},
+    );
     const outs = Array.from(c.querySelectorAll('output')).map((o) => o.textContent);
     expect(outs[0]).toBe('5');
     expect(outs[1]).toBe('0.123');

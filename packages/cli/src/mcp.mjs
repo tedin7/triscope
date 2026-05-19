@@ -5,11 +5,11 @@
 // monorepo. Falls back to a sibling `packages/mcp/bin/triscope-mcp.mjs` for
 // the monorepo case where the bin isn't on PATH.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
 
 const SERVER_NAME = 'triscope';
 const DEFAULT_URL = 'http://localhost:5173';
@@ -68,7 +68,9 @@ export function writeProjectMcpJson(bin, url) {
   const path = join(process.cwd(), '.mcp.json');
   let existing = {};
   if (existsSync(path)) {
-    try { existing = JSON.parse(readFileSync(path, 'utf8')); } catch {}
+    try {
+      existing = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {}
   }
   existing.mcpServers ??= {};
   existing.mcpServers[SERVER_NAME] = {
@@ -112,7 +114,9 @@ export function mergeHook(scope) {
   mkdirSync(dirname(path), { recursive: true });
   let data = {};
   if (existsSync(path)) {
-    try { data = JSON.parse(readFileSync(path, 'utf8')); } catch {
+    try {
+      data = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
       // Settings file is malformed — refuse rather than silently overwrite.
       throw new Error(`refusing to overwrite malformed JSON at ${path}`);
     }
@@ -121,8 +125,11 @@ export function mergeHook(scope) {
   data.hooks.PostToolUse ??= [];
   // Skip if our entry is already present (idempotent install).
   const already = data.hooks.PostToolUse.some(
-    (e) => e?._triscope === true ||
-           e?.hooks?.some?.((h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture')),
+    (e) =>
+      e?._triscope === true ||
+      e?.hooks?.some?.(
+        (h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture'),
+      ),
   );
   if (!already) data.hooks.PostToolUse.push(triscopeHookSpec());
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
@@ -133,13 +140,22 @@ export function unmergeHook(scope) {
   const path = settingsPathForScope(scope);
   if (!existsSync(path)) return { path, removed: false };
   let data;
-  try { data = JSON.parse(readFileSync(path, 'utf8')); } catch { return { path, removed: false }; }
+  try {
+    data = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return { path, removed: false };
+  }
   const arr = data?.hooks?.PostToolUse;
   if (!Array.isArray(arr)) return { path, removed: false };
   const before = arr.length;
   data.hooks.PostToolUse = arr.filter(
-    (e) => !(e?._triscope === true ||
-             e?.hooks?.some?.((h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture'))),
+    (e) =>
+      !(
+        e?._triscope === true ||
+        e?.hooks?.some?.(
+          (h) => typeof h?.command === 'string' && h.command.includes('triscope auto-capture'),
+        )
+      ),
   );
   if (data.hooks.PostToolUse.length === before) return { path, removed: false };
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
@@ -171,7 +187,9 @@ OPTIONS
       'Could not locate @triscope/mcp. Install triscope (e.g. `npm i @triscope/mcp`) or run from the monorepo.',
     );
   }
-  try { statSync(bin); } catch {
+  try {
+    statSync(bin);
+  } catch {
     throw new Error(`@triscope/mcp bin not found at ${bin}`);
   }
 
@@ -181,9 +199,9 @@ OPTIONS
       console.log(`wrote project-scoped registration to ${path}`);
       if (withHook) {
         const r = mergeHook('project');
-        console.log(r.added
-          ? `added PostToolUse hook to ${r.path}`
-          : `hook already present in ${r.path}`);
+        console.log(
+          r.added ? `added PostToolUse hook to ${r.path}` : `hook already present in ${r.path}`,
+        );
       }
       console.log('restart Claude Code in this directory to pick it up.');
       return;
@@ -197,18 +215,24 @@ OPTIONS
       console.log('triscope MCP already registered (user scope), skipping mcp add.');
     } else {
       runClaude([
-        'mcp', 'add', SERVER_NAME,
-        '--scope', 'user',
-        '--env', `TRISCOPE_URL=${url}`,
-        '--', 'node', bin,
+        'mcp',
+        'add',
+        SERVER_NAME,
+        '--scope',
+        'user',
+        '--env',
+        `TRISCOPE_URL=${url}`,
+        '--',
+        'node',
+        bin,
       ]);
       console.log(`\ntriscope registered (user scope). bin: ${bin}`);
     }
     if (withHook) {
       const r = mergeHook('user');
-      console.log(r.added
-        ? `added PostToolUse hook to ${r.path}`
-        : `hook already present in ${r.path}`);
+      console.log(
+        r.added ? `added PostToolUse hook to ${r.path}` : `hook already present in ${r.path}`,
+      );
     }
     return;
   }

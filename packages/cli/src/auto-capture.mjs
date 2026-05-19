@@ -19,8 +19,8 @@
 // edited file likely affects 3D state. Falls back to printing always.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export function readProjectName(cwd) {
   try {

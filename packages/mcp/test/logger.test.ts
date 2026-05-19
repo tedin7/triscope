@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLogger } from '../src/logger.js';
 
 const PROJECT = `triscope-logger-test-${process.pid}`;
@@ -10,7 +10,9 @@ const ROLLED_PATH = `${LOG_PATH}.1`;
 
 function cleanup() {
   for (const p of [LOG_PATH, ROLLED_PATH]) {
-    try { rmSync(p, { force: true }); } catch {}
+    try {
+      rmSync(p, { force: true });
+    } catch {}
   }
 }
 

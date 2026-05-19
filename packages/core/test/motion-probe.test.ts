@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { computeProbeStats, MotionProbeBuffer } from '../src/motion-probe.js';
 
 const FPS = 60;
@@ -7,7 +7,12 @@ const DT = 1 / FPS;
 // Default phase π/4 so zero-crossings fall BETWEEN samples instead of ON them.
 // Sample-aligned crossings are a degenerate case (sin(kπ) ≈ 1e-16) that exposes
 // truncation artifacts unrelated to the algorithm's normal accuracy.
-function sineSamples(hz: number, durationSec: number, amp = 1, phase = Math.PI / 4): { samples: number[]; times: number[] } {
+function sineSamples(
+  hz: number,
+  durationSec: number,
+  amp = 1,
+  phase = Math.PI / 4,
+): { samples: number[]; times: number[] } {
   const n = Math.round(durationSec * FPS);
   const samples = new Array<number>(n);
   const times = new Array<number>(n);

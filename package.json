@@ -13,7 +13,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
   },
   "engines": {
     "node": ">=20"
@@ -25,5 +26,8 @@
   "homepage": "https://github.com/tedin7/triscope#readme",
   "bugs": {
     "url": "https://github.com/tedin7/triscope/issues"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.15"
   }
 }

@@ -39,7 +39,7 @@ export function mountEditor(
       input.type = 'range';
       input.min = String(spec.min);
       input.max = String(spec.max);
-      input.step = String(spec.type === 'int' ? 1 : spec.step ?? (spec.max - spec.min) / 200);
+      input.step = String(spec.type === 'int' ? 1 : (spec.step ?? (spec.max - spec.min) / 200));
       const v = typeof initial[key] === 'number' ? Number(initial[key]) : spec.default;
       input.value = String(v);
       out.textContent = formatNumber(v, spec.type);
@@ -76,7 +76,9 @@ export function mountEditor(
       btn.onclick = () => {
         out.textContent = 'fired';
         onChange(key, true);
-        setTimeout(() => { out.textContent = '–'; }, 400);
+        setTimeout(() => {
+          out.textContent = '–';
+        }, 400);
       };
       out.textContent = '–';
       row.appendChild(btn);
@@ -104,7 +106,9 @@ export function mountEditor(
         // External pulse — flash the output to confirm receipt; no input
         // element to sync because trigger has no persistent state.
         out.textContent = 'fired';
-        setTimeout(() => { out.textContent = '–'; }, 400);
+        setTimeout(() => {
+          out.textContent = '–';
+        }, 400);
         return;
       }
       const inp = inputs.get(key);

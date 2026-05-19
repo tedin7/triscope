@@ -1,10 +1,22 @@
 import * as THREE from 'three/webgpu';
-import type { Element, MountContext, MountHandle, CameraSpec, Knob, TriscopeEvent } from './types.js';
-import { knobDefault } from './types.js';
 import { mountEditor } from './editor.js';
+import {
+  createInspectMode,
+  type InspectMode,
+  type InspectSelection,
+  readInspectFromUrl,
+} from './inspect.js';
 import { MotionProbeBuffer, type ProbeStats } from './motion-probe.js';
 import { installSourceTagPatch } from './source-tag.js';
-import { createInspectMode, readInspectFromUrl, type InspectMode, type InspectSelection } from './inspect.js';
+import type {
+  CameraSpec,
+  Element,
+  Knob,
+  MountContext,
+  MountHandle,
+  TriscopeEvent,
+} from './types.js';
+import { knobDefault } from './types.js';
 
 // Patched once at module load — every Object3D.add() across any element in
 // any lab gets the auto source-tag. Idempotent across multiple runLab().
@@ -89,7 +101,9 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   } = opts;
 
   if (!('gpu' in navigator)) {
-    throw new Error('navigator.gpu is unavailable — open this page in Chrome/Edge with WebGPU enabled.');
+    throw new Error(
+      'navigator.gpu is unavailable — open this page in Chrome/Edge with WebGPU enabled.',
+    );
   }
 
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
@@ -142,7 +156,9 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   // Editor.
   let editor: ReturnType<typeof mountEditor> | null = null;
   if (editorContainer && Object.keys(knobs).length > 0) {
-    editor = mountEditor(editorContainer, knobs, knobValues, (key, value) => applyKnob(key, value, false));
+    editor = mountEditor(editorContainer, knobs, knobValues, (key, value) =>
+      applyKnob(key, value, false),
+    );
   }
 
   function applyKnob(key: string, value: number | string | boolean, fromExternal: boolean): void {
@@ -177,7 +193,8 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
   // Post the element manifest once on boot so MCP can discover it.
   postManifest({
     element: element.name,
-    labUrl: element.labUrl ?? (typeof window !== 'undefined' ? window.location.pathname : undefined),
+    labUrl:
+      element.labUrl ?? (typeof window !== 'undefined' ? window.location.pathname : undefined),
     cameras: Object.entries(element.cameras).map(([n, c]) => ({ name: n, ...c })),
     knobs: Object.entries(knobs).map(([n, k]) => ({ name: n, ...k, current: knobValues[n] })),
   }).catch(() => {});
@@ -381,7 +398,11 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
     try {
       const res = await fetch('/__knob');
       if (!res.ok) return;
-      const drained = (await res.json()) as Array<{ element?: string; key: string; value: unknown }>;
+      const drained = (await res.json()) as Array<{
+        element?: string;
+        key: string;
+        value: unknown;
+      }>;
       if (!Array.isArray(drained) || drained.length === 0) return;
       for (const entry of drained) {
         if (entry.element && entry.element !== element.name) continue;
@@ -449,7 +470,7 @@ export async function runLab(opts: LabOptions): Promise<LabHandle> {
           out.push(renderer.domElement.toDataURL('image/png'));
         }
       } finally {
-        time.value = liveTime;     // restore the live RAF-accumulated time
+        time.value = liveTime; // restore the live RAF-accumulated time
         dt.value = baseDt;
         if (nf) {
           nf.time = baseFrameT;

@@ -1,7 +1,7 @@
 // `triscope state [<jq-style path>]` — read /tmp/<project>-state.json.
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export function readProjectName(cwd) {
   try {

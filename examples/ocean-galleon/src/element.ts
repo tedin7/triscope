@@ -5,8 +5,9 @@
  * motion probes. The mesh is the standalone procedural galleon in
  * ./galleon-mesh.ts — no water3d dependency.
  */
-import * as THREE from 'three/webgpu';
+
 import type { Element } from '@triscope/core';
+import * as THREE from 'three/webgpu';
 import { createGalleonMesh } from './galleon-mesh.js';
 
 interface GalleonUserData {
@@ -106,12 +107,40 @@ export const galleonElement: Element = {
   },
 
   knobs: {
-    windPressure: { type: 'number', min: 0, max: 2, step: 0.01, default: 0.6, label: 'wind pressure (steady)' },
-    windGust: { type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, label: 'wind gust (oscillation)' },
-    sheetAngle: { type: 'number', min: -1.4, max: 1.4, step: 0.01, default: 0, label: 'sheet angle (rad)' },
+    windPressure: {
+      type: 'number',
+      min: 0,
+      max: 2,
+      step: 0.01,
+      default: 0.6,
+      label: 'wind pressure (steady)',
+    },
+    windGust: {
+      type: 'number',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      default: 0.5,
+      label: 'wind gust (oscillation)',
+    },
+    sheetAngle: {
+      type: 'number',
+      min: -1.4,
+      max: 1.4,
+      step: 0.01,
+      default: 0,
+      label: 'sheet angle (rad)',
+    },
     oarStroke: { type: 'number', min: 0, max: 1, step: 0.01, default: 0.3, label: 'oar stroke' },
     windSpeed: { type: 'number', min: 0, max: 20, step: 0.1, default: 8, label: 'wind speed' },
-    yaw: { type: 'number', min: -Math.PI, max: Math.PI, step: 0.01, default: 0, label: 'yaw (rad)' },
+    yaw: {
+      type: 'number',
+      min: -Math.PI,
+      max: Math.PI,
+      step: 0.01,
+      default: 0,
+      label: 'yaw (rad)',
+    },
   },
 
   onKnob: (handle, key, value) => {

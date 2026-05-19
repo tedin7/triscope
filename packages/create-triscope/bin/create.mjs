@@ -3,8 +3,16 @@
 //
 // Copies packages/create-triscope/template/ to <dir>, doing literal
 // `__PROJECT_NAME__` substitution in package.json and the example skill.
-import { mkdirSync, copyFileSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve, basename } from 'node:path';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);

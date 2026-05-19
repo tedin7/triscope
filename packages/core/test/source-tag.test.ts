@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FRAME_RE,
-  SKIP_PATTERNS,
   extractMaterialHint,
+  FRAME_RE,
   installSourceTagPatch,
   parseUserStack,
+  SKIP_PATTERNS,
   stripUrl,
 } from '../src/source-tag.js';
 
@@ -41,9 +41,14 @@ describe('installSourceTagPatch', () => {
     const THREE = await import('three/webgpu');
     installSourceTagPatch();
     const scene = new THREE.Scene();
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ color: 0xff00ff }));
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(),
+      new THREE.MeshBasicMaterial({ color: 0xff00ff }),
+    );
     scene.add(mesh);
-    const tag = mesh.userData?.__tris as { type: string; geometry?: string; material?: { color?: string } } | undefined;
+    const tag = mesh.userData?.__tris as
+      | { type: string; geometry?: string; material?: { color?: string } }
+      | undefined;
     expect(tag).toBeDefined();
     expect(tag!.type).toBe('Mesh');
     expect(tag!.geometry).toBe('BoxGeometry');
@@ -189,7 +194,13 @@ describe('extractMaterialHint', () => {
   });
 
   it('tolerates color.getHexString throwing', () => {
-    const mat = { color: { getHexString: () => { throw new Error('oops'); } } };
+    const mat = {
+      color: {
+        getHexString: () => {
+          throw new Error('oops');
+        },
+      },
+    };
     expect(extractMaterialHint(mat)).toEqual({});
   });
 });

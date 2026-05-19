@@ -75,7 +75,7 @@ describe('@triscope/core barrel (src/index.ts)', () => {
     expect(installSourceTagPatch()).toBe(false);
   });
 
-  it('runLab — re-exported as a function (harness lives behind the import; we don\'t boot WebGPU here)', async () => {
+  it("runLab — re-exported as a function (harness lives behind the import; we don't boot WebGPU here)", async () => {
     const { runLab } = await import('../src/index.js');
     expect(typeof runLab).toBe('function');
     expect(runLab.length).toBeGreaterThanOrEqual(1); // takes a LabOptions arg

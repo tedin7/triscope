@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locateScaffolderBin, runInit } from '../src/init.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,9 @@ describe('runInit (in-process)', () => {
   let exitSpy;
   let errSpy;
   beforeEach(() => {
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit:${code}`); });
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit:${code}`);
+    });
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
@@ -74,10 +76,17 @@ describe('runInit (in-process)', () => {
 describe('triscope init (real subprocess)', () => {
   let TMP;
   beforeEach(() => {
-    TMP = join(tmpdir(), `triscope-init-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    TMP = join(
+      tmpdir(),
+      `triscope-init-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     mkdirSync(TMP, { recursive: true });
   });
-  afterEach(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+  afterEach(() => {
+    try {
+      rmSync(TMP, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('exits 2 with usage when no dir is given', () => {
     const r = spawnSync(process.execPath, [BIN, 'init'], { encoding: 'utf8' });

@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RELEVANT, fmt, readProjectName, runAutoCapture } from '../src/auto-capture.mjs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fmt, RELEVANT, readProjectName, runAutoCapture } from '../src/auto-capture.mjs';
 
 describe('fmt', () => {
   it('formats finite numbers to 2 decimals', () => {
@@ -49,8 +49,12 @@ describe('runAutoCapture', () => {
   });
   afterEach(() => {
     process.chdir(origCwd);
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
-    try { rmSync(join(tmpdir(), 'demoauto-state.json'), { force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
+    try {
+      rmSync(join(tmpdir(), 'demoauto-state.json'), { force: true });
+    } catch {}
     logSpy.mockRestore();
   });
 
@@ -77,13 +81,16 @@ describe('runAutoCapture', () => {
   });
 
   it('prints one line per element with motion + fps when present', async () => {
-    writeFileSync(join(tmpdir(), 'demoauto-state.json'), JSON.stringify({
-      perf: { fps: 59.83 },
-      elements: {
-        ship: { motion: { hull: { peakToPeak: 1.23, dominantFreqHz: 2.45 } } },
-        water: { motion: { wave: { peakToPeak: 0.5, dominantFreqHz: 1.1 } } },
-      },
-    }));
+    writeFileSync(
+      join(tmpdir(), 'demoauto-state.json'),
+      JSON.stringify({
+        perf: { fps: 59.83 },
+        elements: {
+          ship: { motion: { hull: { peakToPeak: 1.23, dominantFreqHz: 2.45 } } },
+          water: { motion: { wave: { peakToPeak: 0.5, dominantFreqHz: 1.1 } } },
+        },
+      }),
+    );
     await runAutoCapture({});
     const printed = logSpy.mock.calls[0][0];
     expect(printed).toMatch(/fps=59\.83/);

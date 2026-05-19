@@ -9,8 +9,9 @@
  * Coordinate frame (ship local): +X forward (bow), +Y up, +Z starboard.
  * Origin at waterline center.
  */
-import * as THREE from 'three/webgpu';
+
 import { uniform } from 'three/tsl';
+import * as THREE from 'three/webgpu';
 
 export interface GalleonMeshResult {
   group: THREE.Group;
@@ -33,7 +34,10 @@ function pbr(color: string, roughness = 0.72, metalness = 0): THREE.MeshPhysical
   return new THREE.MeshPhysicalNodeMaterial({ color, roughness, metalness });
 }
 
-function makeSailMat(color: string, _uWindPressure: ReturnType<typeof uniform>): THREE.MeshPhysicalNodeMaterial {
+function makeSailMat(
+  color: string,
+  _uWindPressure: ReturnType<typeof uniform>,
+): THREE.MeshPhysicalNodeMaterial {
   // NOTE: a TSL-driven positionNode would let sails breathe with uWindPressure,
   // but the deeper "shader-iteration story" really lives on water3d's actual
   // pirate ship. Here we keep a plain PBR material so the example boots fast
@@ -114,7 +118,7 @@ export function createGalleonMesh(opts: GalleonMeshOptions = {}): GalleonMeshRes
   // --- Oars (4 per side, 8 total) with pivots that rotate around X for stroke.
   const oarMat = pbr('#6e4b22', 0.7);
   const oarPivots: THREE.Group[] = [];
-  for (let side of [-1, 1] as const) {
+  for (const side of [-1, 1] as const) {
     for (let i = 0; i < 4; i++) {
       const x = -6 + i * 3;
       const z = side * 3;

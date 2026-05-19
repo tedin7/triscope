@@ -88,7 +88,9 @@ export function computeProbeStats(samples: number[], times: number[]): ProbeStat
   const n = samples.length;
   if (n === 0) return null;
   if (times.length !== n) {
-    throw new Error(`computeProbeStats: samples (${n}) and times (${times.length}) length mismatch`);
+    throw new Error(
+      `computeProbeStats: samples (${n}) and times (${times.length}) length mismatch`,
+    );
   }
   let min = samples[0];
   let max = samples[0];
@@ -117,7 +119,7 @@ export function computeProbeStats(samples: number[], times: number[]): ProbeStat
     }
   }
   const duration = Math.max(times[n - 1] - times[0], 1e-6);
-  const dominantFreqHz = (crossings / 2) / duration;
+  const dominantFreqHz = crossings / 2 / duration;
   const zeroCrossingsPerSec = crossings / duration;
   const tail = samples.slice(Math.max(0, n - 32));
   return {

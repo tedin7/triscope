@@ -6,8 +6,8 @@
 // One pool per MCP process. Disposed on process exit (kill -9 also clears
 // the user-data-dir via the OS, since /tmp is volatile).
 
-import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,7 +43,9 @@ export function tailLines(text: string, maxLines = 24): string {
 
 async function readDevtoolsPages(port: number): Promise<any[] | null> {
   try {
-    const pages = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(1000) }).then((r) => r.json());
+    const pages = await fetch(`http://127.0.0.1:${port}/json`, {
+      signal: AbortSignal.timeout(1000),
+    }).then((r) => r.json());
     return Array.isArray(pages) && pages.length > 0 ? pages : null;
   } catch {
     return null;
@@ -101,7 +103,9 @@ export function inferGraphicalEnv(): NodeJS.ProcessEnv {
       try {
         const waylandSocket = readdirSync(runtimeDir).find((name) => /^wayland-\d+$/.test(name));
         if (waylandSocket) env.WAYLAND_DISPLAY = waylandSocket;
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     }
   }
 
@@ -124,7 +128,9 @@ export function defaultChromeBinary(): string {
 }
 
 export function createBrowserPool({
-  chromeBin = process.env.CHROME_BIN ?? process.env.PUPPETEER_EXECUTABLE_PATH ?? defaultChromeBinary(),
+  chromeBin = process.env.CHROME_BIN ??
+    process.env.PUPPETEER_EXECUTABLE_PATH ??
+    defaultChromeBinary(),
   port = Number(process.env.TRISCOPE_DEBUG_PORT ?? 9230),
   logger = undefined as Logger | undefined,
 } = {}) {
@@ -136,7 +142,8 @@ export function createBrowserPool({
   let currentUrl = null;
 
   async function connectToPage(initialUrl: string, pages: any[]) {
-    const page = pages.find((p) => p.url === initialUrl || p.url?.startsWith(initialUrl)) ?? pages[0];
+    const page =
+      pages.find((p) => p.url === initialUrl || p.url?.startsWith(initialUrl)) ?? pages[0];
     ws = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((res, rej) => {
       ws.onopen = res;
@@ -168,7 +175,10 @@ export function createBrowserPool({
     // require a user-approved launcher outside the MCP process.
     const existingPages = await readDevtoolsPages(port);
     if (existingPages) {
-      logger?.info('browser', 'attaching to existing DevTools endpoint', { port, pages: existingPages.length });
+      logger?.info('browser', 'attaching to existing DevTools endpoint', {
+        port,
+        pages: existingPages.length,
+      });
       await connectToPage(initialUrl, existingPages);
       return;
     }
@@ -182,7 +192,7 @@ export function createBrowserPool({
     // to diagnose.
     const profile = join(
       tmpdir(),
-      `triscope-mcp-profile-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      `triscope-mcp-profile-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     const args = chromeLaunchArgs(profile, initialUrl);
     chromeExit = null;
@@ -211,7 +221,9 @@ export function createBrowserPool({
     chrome.on('error', (err) => {
       chromeExit = { code: 1, signal: null };
       chromeStderr += `\nspawn error: ${(err as any)?.message ?? String(err)}`;
-      logger?.error('browser', 'chromium spawn error', { message: (err as any)?.message ?? String(err) });
+      logger?.error('browser', 'chromium spawn error', {
+        message: (err as any)?.message ?? String(err),
+      });
     });
 
     let pages: any[] | null = null;
@@ -231,9 +243,15 @@ export function createBrowserPool({
       // (non-debuggable) sibling instance.
       const silentExit = !chromeExit && !pages;
       const hint = silentExit
-        ? 'Chromium process is alive but DevTools never opened — usually the host sandbox is blocking the bind on TRISCOPE_DEBUG_PORT, or another Chromium instance is reusing the same profile dir. Workarounds: (1) pre-launch Chrome yourself with --remote-debugging-port=' + port + ' --enable-unsafe-webgpu — the MCP server auto-attaches to an existing endpoint when present; (2) set TRISCOPE_DEBUG_PORT to a port the sandbox permits.'
-        : 'If this runs under Codex/Claude and headed launch still fails, pre-launch Chrome with --remote-debugging-port=' + port + ' or set TRISCOPE_CHROME_ARGS=--headless=new for non-interactive capture.';
-      throw new Error(`DevTools endpoint did not become ready on 127.0.0.1:${port}.${exit}${stderr ? `\nstderr:\n${stderr}` : ''}\n${hint}`);
+        ? 'Chromium process is alive but DevTools never opened — usually the host sandbox is blocking the bind on TRISCOPE_DEBUG_PORT, or another Chromium instance is reusing the same profile dir. Workarounds: (1) pre-launch Chrome yourself with --remote-debugging-port=' +
+          port +
+          ' --enable-unsafe-webgpu — the MCP server auto-attaches to an existing endpoint when present; (2) set TRISCOPE_DEBUG_PORT to a port the sandbox permits.'
+        : 'If this runs under Codex/Claude and headed launch still fails, pre-launch Chrome with --remote-debugging-port=' +
+          port +
+          ' or set TRISCOPE_CHROME_ARGS=--headless=new for non-interactive capture.';
+      throw new Error(
+        `DevTools endpoint did not become ready on 127.0.0.1:${port}.${exit}${stderr ? `\nstderr:\n${stderr}` : ''}\n${hint}`,
+      );
     }
     await connectToPage(initialUrl, pages);
   }
@@ -241,11 +259,11 @@ export function createBrowserPool({
   function harnessNotMountedError(url: string) {
     return new Error(
       `window.__TRISCOPE__ did not mount within 10s on ${url}. ` +
-      `Common causes: ` +
-      `(1) the page never loaded — confirm the dev server is up and the URL is right (open it in a real browser tab); ` +
-      `(2) WebGPU init failed — Linux Chrome needs --enable-unsafe-webgpu and either xvfb or a real display; ` +
-      `(3) runLab() threw before mounting — check the #boot overlay text or the page console; ` +
-      `(4) the lab page doesn't call runLab() at all — verify its entry script imports @triscope/core.`
+        `Common causes: ` +
+        `(1) the page never loaded — confirm the dev server is up and the URL is right (open it in a real browser tab); ` +
+        `(2) WebGPU init failed — Linux Chrome needs --enable-unsafe-webgpu and either xvfb or a real display; ` +
+        `(3) runLab() threw before mounting — check the #boot overlay text or the page console; ` +
+        `(4) the lab page doesn't call runLab() at all — verify its entry script imports @triscope/core.`,
     );
   }
 
@@ -260,7 +278,10 @@ export function createBrowserPool({
           expression: '!!window.__TRISCOPE__ && Object.keys(window.__TRISCOPE__.cameras).length',
           returnByValue: true,
         });
-        if (probe.result.result.value) { currentUrl = url; return; }
+        if (probe.result.result.value) {
+          currentUrl = url;
+          return;
+        }
       } catch {}
       await wait(200);
     }
@@ -296,9 +317,18 @@ export function createBrowserPool({
   }
 
   function disposeQuiet() {
-    try { ws?.close(); } catch {}
-    try { if (chrome && !chrome.killed) chrome.kill(); } catch {}
-    ws = null; chrome = null; call = null; currentUrl = null; chromeExit = null; chromeStderr = '';
+    try {
+      ws?.close();
+    } catch {}
+    try {
+      if (chrome && !chrome.killed) chrome.kill();
+    } catch {}
+    ws = null;
+    chrome = null;
+    call = null;
+    currentUrl = null;
+    chromeExit = null;
+    chromeStderr = '';
   }
 
   return {
@@ -319,6 +349,8 @@ export function createBrowserPool({
       return { call };
     },
     /** Synchronous teardown. Safe to call multiple times. */
-    dispose() { disposeQuiet(); },
+    dispose() {
+      disposeQuiet();
+    },
   };
 }

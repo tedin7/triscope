@@ -1,16 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyDir, main } from '../bin/create.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -27,13 +20,18 @@ let templateDir;
 let outDir;
 
 beforeEach(() => {
-  base = join(tmpdir(), `triscope-create-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  base = join(
+    tmpdir(),
+    `triscope-create-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
   templateDir = join(base, 'template');
   outDir = join(base, 'out');
   mkdirSync(templateDir, { recursive: true });
 });
 afterEach(() => {
-  try { rmSync(base, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(base, { recursive: true, force: true });
+  } catch {}
 });
 
 describe('copyDir', () => {
@@ -47,10 +45,14 @@ describe('copyDir', () => {
 
   it('recurses into subdirectories', () => {
     mkdirSync(join(templateDir, 'src', 'inner'), { recursive: true });
-    writeFileSync(join(templateDir, 'src', 'inner', 'a.ts'), 'export const NAME = "__PROJECT_NAME__";');
+    writeFileSync(
+      join(templateDir, 'src', 'inner', 'a.ts'),
+      'export const NAME = "__PROJECT_NAME__";',
+    );
     copyDir(templateDir, outDir, { __PROJECT_NAME__: 'nested' });
-    expect(readFileSync(join(outDir, 'src', 'inner', 'a.ts'), 'utf8'))
-      .toBe('export const NAME = "nested";');
+    expect(readFileSync(join(outDir, 'src', 'inner', 'a.ts'), 'utf8')).toBe(
+      'export const NAME = "nested";',
+    );
   });
 
   it('leaves non-text files (e.g. binary) untouched and intact', () => {
@@ -61,7 +63,10 @@ describe('copyDir', () => {
   });
 
   it('handles multiple substitutions in one file', () => {
-    writeFileSync(join(templateDir, 'config.json'), '{"a":"__PROJECT_NAME__","b":"__PROJECT_NAME__"}');
+    writeFileSync(
+      join(templateDir, 'config.json'),
+      '{"a":"__PROJECT_NAME__","b":"__PROJECT_NAME__"}',
+    );
     copyDir(templateDir, outDir, { __PROJECT_NAME__: 'twice' });
     expect(readFileSync(join(outDir, 'config.json'), 'utf8')).toBe('{"a":"twice","b":"twice"}');
   });
@@ -91,7 +96,9 @@ describe('main() called in-process (covers the script body)', () => {
   beforeEach(() => {
     origArgv = process.argv;
     origCwd = process.cwd();
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit:${code}`); });
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit:${code}`);
+    });
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });

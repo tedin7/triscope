@@ -1,13 +1,13 @@
 #!/usr/bin/env node
+import { runAutoCapture } from '../src/auto-capture.mjs';
 // Triscope CLI entry. Pure ESM JS — no build step.
 import { runDev } from '../src/dev.mjs';
-import { runState } from '../src/state.mjs';
-import { runList } from '../src/list.mjs';
-import { runSmoke } from '../src/smoke.mjs';
-import { runMcp } from '../src/mcp.mjs';
-import { runAutoCapture } from '../src/auto-capture.mjs';
 import { runInit } from '../src/init.mjs';
+import { runList } from '../src/list.mjs';
+import { runMcp } from '../src/mcp.mjs';
 import { parseFlags } from '../src/parse-flags.mjs';
+import { runSmoke } from '../src/smoke.mjs';
+import { runState } from '../src/state.mjs';
 
 const [, , subcommand, ...rest] = process.argv;
 

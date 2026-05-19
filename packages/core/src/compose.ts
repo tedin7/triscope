@@ -56,8 +56,11 @@ export function composeElements(elements: Element[], opts: ComposeOptions = {}):
     }
     for (const [pn, p] of Object.entries(el.motionProbes ?? {})) {
       const idx = i; // capture
-      (motionProbes as Record<string, any>)[nsKey(el.name, pn)] = (handle: MountHandle, ctx: MountContext) => {
-        const childHandle = ((handle.userData as unknown as ChildHandles)?.handles)?.[idx];
+      (motionProbes as Record<string, any>)[nsKey(el.name, pn)] = (
+        handle: MountHandle,
+        ctx: MountContext,
+      ) => {
+        const childHandle = (handle.userData as unknown as ChildHandles)?.handles?.[idx];
         return childHandle ? p(childHandle, ctx) : 0;
       };
     }
@@ -76,7 +79,11 @@ export function composeElements(elements: Element[], opts: ComposeOptions = {}):
         userData: { handles } as unknown as Record<string, unknown>,
         dispose: () => {
           for (const h of handles) {
-            try { h.dispose(); } catch { /* keep tearing down the rest */ }
+            try {
+              h.dispose();
+            } catch {
+              /* keep tearing down the rest */
+            }
           }
         },
       };
@@ -86,13 +93,13 @@ export function composeElements(elements: Element[], opts: ComposeOptions = {}):
       if (!elName || !knobKey) return;
       const idx = elements.findIndex((e) => e.name === elName);
       if (idx < 0) return;
-      const childHandle = ((handle.userData as unknown as ChildHandles)?.handles)?.[idx];
+      const childHandle = (handle.userData as unknown as ChildHandles)?.handles?.[idx];
       if (!childHandle) return;
       elements[idx].onKnob?.(childHandle, knobKey, value);
     },
     telemetry: (handle, ctx) => {
       const out: Record<string, unknown> = {};
-      const childHandles = ((handle.userData as unknown as ChildHandles)?.handles) ?? [];
+      const childHandles = (handle.userData as unknown as ChildHandles)?.handles ?? [];
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
         const h = childHandles[i];
@@ -103,18 +110,20 @@ export function composeElements(elements: Element[], opts: ComposeOptions = {}):
     motionProbes,
     events: (handle, ctx) => {
       const out: TriscopeEvent[] = [];
-      const childHandles = ((handle.userData as unknown as ChildHandles)?.handles) ?? [];
+      const childHandles = (handle.userData as unknown as ChildHandles)?.handles ?? [];
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
         const h = childHandles[i];
         if (!el.events || !h) continue;
         try {
-          for (const ev of (el.events(h, ctx) ?? [])) {
+          for (const ev of el.events(h, ctx) ?? []) {
             // Namespace event types so a `collision` from ship and water
             // are distinguishable downstream.
             out.push({ ...ev, type: nsKey(el.name, ev.type) });
           }
-        } catch { /* ignore element-level failures */ }
+        } catch {
+          /* ignore element-level failures */
+        }
       }
       return out;
     },

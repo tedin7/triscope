@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { buildParentChain, describeObj, findMeshBySource, readInspectFromUrl } from '../src/inspect.js';
+import {
+  buildParentChain,
+  describeObj,
+  findMeshBySource,
+  readInspectFromUrl,
+} from '../src/inspect.js';
 
 /**
  * These tests only cover the pure helpers that don't need WebGPU.
@@ -8,13 +13,15 @@ import { buildParentChain, describeObj, findMeshBySource, readInspectFromUrl } f
  * better exercised by an end-to-end smoke (out of phase-1 scope).
  */
 
-function stubObj(opts: {
-  name?: string;
-  ctorName?: string;
-  geometryType?: string;
-  color?: string;
-  parent?: any;
-} = {}): any {
+function stubObj(
+  opts: {
+    name?: string;
+    ctorName?: string;
+    geometryType?: string;
+    color?: string;
+    parent?: any;
+  } = {},
+): any {
   const o: any = {
     name: opts.name ?? '',
     parent: opts.parent ?? null,
@@ -37,7 +44,9 @@ describe('describeObj', () => {
   });
 
   it('appends geometry type when present', () => {
-    expect(describeObj(stubObj({ ctorName: 'Mesh', geometryType: 'BoxGeometry' }))).toBe('Mesh<BoxGeometry>');
+    expect(describeObj(stubObj({ ctorName: 'Mesh', geometryType: 'BoxGeometry' }))).toBe(
+      'Mesh<BoxGeometry>',
+    );
   });
 
   it('appends color hex when material exposes getHexString', () => {
@@ -51,7 +60,13 @@ describe('describeObj', () => {
 
   it('survives a throwing color extractor', () => {
     const o: any = stubObj({ ctorName: 'Mesh', geometryType: 'BoxGeometry' });
-    o.material = { color: { getHexString: () => { throw new Error('boom'); } } };
+    o.material = {
+      color: {
+        getHexString: () => {
+          throw new Error('boom');
+        },
+      },
+    };
     expect(describeObj(o)).toBe('Mesh<BoxGeometry>');
   });
 });
@@ -85,15 +100,27 @@ describe('findMeshBySource', () => {
   });
 
   it('matches by exact file + line', () => {
-    const target = { userData: { __tris: { source: { file: '/a.ts', line: 10, col: 1 }, stack: [], type: 'Mesh' } } };
-    const other = { userData: { __tris: { source: { file: '/b.ts', line: 10, col: 1 }, stack: [], type: 'Mesh' } } };
+    const target = {
+      userData: {
+        __tris: { source: { file: '/a.ts', line: 10, col: 1 }, stack: [], type: 'Mesh' },
+      },
+    };
+    const other = {
+      userData: {
+        __tris: { source: { file: '/b.ts', line: 10, col: 1 }, stack: [], type: 'Mesh' },
+      },
+    };
     const scene = makeScene([other, target]);
     expect(findMeshBySource(scene, { file: '/a.ts', line: 10, col: 1 })).toBe(target);
   });
 
   it('returns null when no mesh matches', () => {
     const scene = makeScene([
-      { userData: { __tris: { source: { file: '/a.ts', line: 1, col: 1 }, stack: [], type: 'Mesh' } } },
+      {
+        userData: {
+          __tris: { source: { file: '/a.ts', line: 1, col: 1 }, stack: [], type: 'Mesh' },
+        },
+      },
     ]);
     expect(findMeshBySource(scene, { file: '/a.ts', line: 2, col: 1 })).toBeNull();
   });

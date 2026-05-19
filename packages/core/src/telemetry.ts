@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { Plugin } from 'vite';
 
 interface TelemetryOptions {
@@ -87,7 +87,7 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
   const forceReloadOn =
     opts.forceReloadOn === null
       ? null
-      : opts.forceReloadOn ?? /(\.tsl|Element|Mesh|Material|Shader)\.(ts|tsx|js|mjs)$/i;
+      : (opts.forceReloadOn ?? /(\.tsl|Element|Mesh|Material|Shader)\.(ts|tsx|js|mjs)$/i);
 
   return {
     name: 'triscope-telemetry',
@@ -122,7 +122,9 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
                   elements: { ...(existing?.elements ?? {}), ...(payload?.elements ?? {}) },
                 };
               }
-            } catch { /* corrupt file — overwrite with the new payload */ }
+            } catch {
+              /* corrupt file — overwrite with the new payload */
+            }
             writeFileSync(statePath, JSON.stringify(merged, null, 2));
             const ts = new Date().toISOString();
             const fps = (payload?.perf?.fps as number | undefined)?.toFixed?.(0) ?? '?';
@@ -161,7 +163,7 @@ export function triscopeTelemetryPlugin(opts: TelemetryOptions = {}): Plugin {
                 lastKnobValues[u.element][u.key] = u.value;
               }
             }
-            pendingKnobs.push(...updates as typeof pendingKnobs);
+            pendingKnobs.push(...(updates as typeof pendingKnobs));
             res.statusCode = 200;
             return res.end('ok');
           }

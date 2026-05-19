@@ -1,7 +1,7 @@
 // `triscope dev` — proxy to `vite` in the current project.
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 export async function runDev({ port } = {}) {
   const cwd = process.cwd();

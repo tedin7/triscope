@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   composeFilmstrip,
   composeSideBySide,
@@ -23,7 +23,11 @@ import {
  * Refs.ts is pure image math + filesystem. Tests build solid-colour PNGs
  * on the fly so we don't need any binary fixtures.
  */
-function solidPng(w: number, h: number, rgb: [number, number, number]): { png: PNG; base64: string } {
+function solidPng(
+  w: number,
+  h: number,
+  rgb: [number, number, number],
+): { png: PNG; base64: string } {
   const png = new PNG({ width: w, height: h });
   for (let i = 0; i < png.data.length; i += 4) {
     png.data[i] = rgb[0];
@@ -57,7 +61,9 @@ beforeEach(() => {
   mkdirSync(cwd, { recursive: true });
 });
 afterEach(() => {
-  try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(cwd, { recursive: true, force: true });
+  } catch {}
 });
 
 describe('refsPath / refsMotionPaths', () => {
@@ -180,10 +186,7 @@ describe('composeFilmstrip', () => {
   });
 
   it('honours a custom separator width', () => {
-    const frames = [
-      solidPng(10, 10, [0, 0, 0]).base64,
-      solidPng(10, 10, [0, 0, 0]).base64,
-    ];
+    const frames = [solidPng(10, 10, [0, 0, 0]).base64, solidPng(10, 10, [0, 0, 0]).base64];
     const buf = composeFilmstrip(frames, { sep: 8 });
     const decoded = decodePng(buf);
     expect(decoded.width).toBe(10 + 8 + 10);
@@ -224,7 +227,9 @@ describe('setReference / diffReference', () => {
   });
 
   it('setReference rejects when path does not exist', () => {
-    expect(() => setReference({ cwd, element: 'ship', camera: 'bow', path: '/nope.png' })).toThrow(/not found/);
+    expect(() => setReference({ cwd, element: 'ship', camera: 'bow', path: '/nope.png' })).toThrow(
+      /not found/,
+    );
   });
 
   it('setReference writes the PNG and returns the path', () => {
@@ -236,19 +241,31 @@ describe('setReference / diffReference', () => {
 
   it('setReference tolerates data-uri prefix', () => {
     const { base64 } = solidPng(8, 8, [1, 2, 3]);
-    const out = setReference({ cwd, element: 'ship', camera: 'bow', base64: `data:image/png;base64,${base64}` });
+    const out = setReference({
+      cwd,
+      element: 'ship',
+      camera: 'bow',
+      base64: `data:image/png;base64,${base64}`,
+    });
     expect(existsSync(out.path)).toBe(true);
   });
 
   it('diffReference throws when no reference exists', () => {
     expect(() =>
-      diffReference({ cwd, element: 'ship', camera: 'bow', currentBase64: solidPng(8, 8, [0, 0, 0]).base64 }),
+      diffReference({
+        cwd,
+        element: 'ship',
+        camera: 'bow',
+        currentBase64: solidPng(8, 8, [0, 0, 0]).base64,
+      }),
     ).toThrow(/no reference/);
   });
 
   it('diffReference throws when currentBase64 is missing', () => {
     setReference({ cwd, element: 'ship', camera: 'bow', base64: solidPng(8, 8, [0, 0, 0]).base64 });
-    expect(() => diffReference({ cwd, element: 'ship', camera: 'bow', currentBase64: '' })).toThrow(/currentBase64/);
+    expect(() => diffReference({ cwd, element: 'ship', camera: 'bow', currentBase64: '' })).toThrow(
+      /currentBase64/,
+    );
   });
 
   it('diffReference returns 0 meanAbsDiff and high ssim for identical frames', () => {
@@ -262,9 +279,17 @@ describe('setReference / diffReference', () => {
   });
 
   it('diffReference returns a high mean-diff for very different frames', () => {
-    setReference({ cwd, element: 'ship', camera: 'bow', base64: solidPng(32, 32, [0, 0, 0]).base64 });
+    setReference({
+      cwd,
+      element: 'ship',
+      camera: 'bow',
+      base64: solidPng(32, 32, [0, 0, 0]).base64,
+    });
     const out = diffReference({
-      cwd, element: 'ship', camera: 'bow', currentBase64: solidPng(32, 32, [255, 255, 255]).base64,
+      cwd,
+      element: 'ship',
+      camera: 'bow',
+      currentBase64: solidPng(32, 32, [255, 255, 255]).base64,
     });
     expect(out.meanAbsDiff).toBeGreaterThan(200);
   });
@@ -272,12 +297,20 @@ describe('setReference / diffReference', () => {
 
 describe('setReferenceMotion / diffReferenceMotion', () => {
   it('setReferenceMotion requires >=2 frames', () => {
-    expect(() => setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: [], meta: {} })).toThrow(/at least 2/);
+    expect(() =>
+      setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: [], meta: {} }),
+    ).toThrow(/at least 2/);
   });
 
   it('setReferenceMotion writes filmstrip + meta', () => {
     const frames = [solidPng(8, 8, [0, 0, 0]).base64, solidPng(8, 8, [255, 255, 255]).base64];
-    const out = setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: frames, meta: { fps: 60 } });
+    const out = setReferenceMotion({
+      cwd,
+      element: 'ship',
+      camera: 'bow',
+      frameBase64s: frames,
+      meta: { fps: 60 },
+    });
     expect(existsSync(out.filmstripPath)).toBe(true);
     expect(existsSync(out.metaPath)).toBe(true);
     const meta = JSON.parse(readFileSync(out.metaPath, 'utf8'));
@@ -287,21 +320,36 @@ describe('setReferenceMotion / diffReferenceMotion', () => {
   });
 
   it('diffReferenceMotion throws when no motion reference exists', () => {
-    expect(() => diffReferenceMotion({
-      cwd, element: 'ship', camera: 'bow',
-      currentFrames: [solidPng(8, 8, [0, 0, 0]).base64, solidPng(8, 8, [0, 0, 0]).base64],
-    })).toThrow(/no motion reference/);
+    expect(() =>
+      diffReferenceMotion({
+        cwd,
+        element: 'ship',
+        camera: 'bow',
+        currentFrames: [solidPng(8, 8, [0, 0, 0]).base64, solidPng(8, 8, [0, 0, 0]).base64],
+      }),
+    ).toThrow(/no motion reference/);
   });
 
   it('diffReferenceMotion throws when currentFrames is empty', () => {
     const frames = [solidPng(8, 8, [0, 0, 0]).base64, solidPng(8, 8, [255, 255, 255]).base64];
     setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: frames, meta: {} });
-    expect(() => diffReferenceMotion({ cwd, element: 'ship', camera: 'bow', currentFrames: [] })).toThrow(/non-empty/);
+    expect(() =>
+      diffReferenceMotion({ cwd, element: 'ship', camera: 'bow', currentFrames: [] }),
+    ).toThrow(/non-empty/);
   });
 
   it('diffReferenceMotion returns 0 diff for identical filmstrips', () => {
-    const frames = [solidPng(16, 16, [50, 50, 50]).base64, solidPng(16, 16, [100, 100, 100]).base64];
-    setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: frames, meta: { fps: 30 } });
+    const frames = [
+      solidPng(16, 16, [50, 50, 50]).base64,
+      solidPng(16, 16, [100, 100, 100]).base64,
+    ];
+    setReferenceMotion({
+      cwd,
+      element: 'ship',
+      camera: 'bow',
+      frameBase64s: frames,
+      meta: { fps: 30 },
+    });
     const out = diffReferenceMotion({ cwd, element: 'ship', camera: 'bow', currentFrames: frames });
     expect(out.motionDiff).toBe(0);
     expect(out.refMeta?.fps).toBe(30);
@@ -310,7 +358,10 @@ describe('setReferenceMotion / diffReferenceMotion', () => {
 
   it('diffReferenceMotion reports >0 diff for different filmstrips', () => {
     const ref = [solidPng(16, 16, [0, 0, 0]).base64, solidPng(16, 16, [10, 10, 10]).base64];
-    const cur = [solidPng(16, 16, [200, 200, 200]).base64, solidPng(16, 16, [250, 250, 250]).base64];
+    const cur = [
+      solidPng(16, 16, [200, 200, 200]).base64,
+      solidPng(16, 16, [250, 250, 250]).base64,
+    ];
     setReferenceMotion({ cwd, element: 'ship', camera: 'bow', frameBase64s: ref, meta: {} });
     const out = diffReferenceMotion({ cwd, element: 'ship', camera: 'bow', currentFrames: cur });
     expect(out.motionDiff).toBeGreaterThan(100);

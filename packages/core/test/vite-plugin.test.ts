@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { triscopeTelemetryPlugin } from '../src/telemetry.js';
 
 type MwHandler = (req: any, res: any, next?: () => void) => unknown | Promise<unknown>;
@@ -22,7 +22,11 @@ function makeServer(): { server: MwServer; routes: Map<string, MwHandler>; wsMes
   return { server, routes, wsMessages };
 }
 
-function fakeReq(method: string, url: string, body?: string): Readable & { method: string; url: string } {
+function fakeReq(
+  method: string,
+  url: string,
+  body?: string,
+): Readable & { method: string; url: string } {
   const stream = body !== undefined ? Readable.from([body]) : Readable.from([]);
   (stream as any).method = method;
   (stream as any).url = url;
@@ -38,20 +42,31 @@ interface CapturedResponse {
 function fakeRes(): { res: any; captured: CapturedResponse; done: Promise<void> } {
   const captured: CapturedResponse = { statusCode: 200, headers: {}, body: '' };
   let resolveDone!: () => void;
-  const done = new Promise<void>((r) => { resolveDone = r; });
+  const done = new Promise<void>((r) => {
+    resolveDone = r;
+  });
   const res = {
     statusCode: 200,
-    setHeader(k: string, v: string) { captured.headers[k.toLowerCase()] = v; },
+    setHeader(k: string, v: string) {
+      captured.headers[k.toLowerCase()] = v;
+    },
     end(chunk?: string | Buffer) {
       captured.statusCode = this.statusCode;
-      if (chunk !== undefined) captured.body = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      if (chunk !== undefined)
+        captured.body = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
       resolveDone();
     },
   };
   return { res, captured, done };
 }
 
-async function call(handler: MwHandler, req: any, res: any, captured: CapturedResponse, done: Promise<void>): Promise<CapturedResponse> {
+async function call(
+  handler: MwHandler,
+  req: any,
+  res: any,
+  captured: CapturedResponse,
+  done: Promise<void>,
+): Promise<CapturedResponse> {
   await Promise.resolve(handler(req, res, () => done /* no-op next */));
   await done;
   return captured;
@@ -63,7 +78,9 @@ const LOG_PATH = join(tmpdir(), `${TEST_PROJECT}-state.log`);
 
 function cleanupFiles() {
   for (const p of [STATE_PATH, LOG_PATH]) {
-    try { rmSync(p, { force: true }); } catch {}
+    try {
+      rmSync(p, { force: true });
+    } catch {}
   }
 }
 
@@ -99,7 +116,13 @@ describe('triscopeTelemetryPlugin', () => {
     const handler = routes.get('/__state')!;
     // POST first
     const post = fakeRes();
-    await call(handler, fakeReq('POST', '/__state', JSON.stringify({ time: 1.5 })), post.res, post.captured, post.done);
+    await call(
+      handler,
+      fakeReq('POST', '/__state', JSON.stringify({ time: 1.5 })),
+      post.res,
+      post.captured,
+      post.done,
+    );
     // GET back
     const get = fakeRes();
     await call(handler, fakeReq('GET', '/__state'), get.res, get.captured, get.done);
@@ -113,10 +136,20 @@ describe('triscopeTelemetryPlugin', () => {
     const handler = routes.get('/__knob')!;
     // Push 2 knob updates.
     const post = fakeRes();
-    await call(handler, fakeReq('POST', '/__knob', JSON.stringify([
-      { element: 'ship', key: 'wind', value: 1.5 },
-      { element: 'ship', key: 'yaw', value: 0.3 },
-    ])), post.res, post.captured, post.done);
+    await call(
+      handler,
+      fakeReq(
+        'POST',
+        '/__knob',
+        JSON.stringify([
+          { element: 'ship', key: 'wind', value: 1.5 },
+          { element: 'ship', key: 'yaw', value: 0.3 },
+        ]),
+      ),
+      post.res,
+      post.captured,
+      post.done,
+    );
     // First GET drains.
     const get1 = fakeRes();
     await call(handler, fakeReq('GET', '/__knob'), get1.res, get1.captured, get1.done);
@@ -136,10 +169,20 @@ describe('triscopeTelemetryPlugin', () => {
     const handler = routes.get('/__knob')!;
     // Push some knobs.
     const post = fakeRes();
-    await call(handler, fakeReq('POST', '/__knob', JSON.stringify([
-      { element: 'ship', key: 'wind', value: 1.5 },
-      { element: 'water', key: 'depth', value: 100 },
-    ])), post.res, post.captured, post.done);
+    await call(
+      handler,
+      fakeReq(
+        'POST',
+        '/__knob',
+        JSON.stringify([
+          { element: 'ship', key: 'wind', value: 1.5 },
+          { element: 'water', key: 'depth', value: 100 },
+        ]),
+      ),
+      post.res,
+      post.captured,
+      post.done,
+    );
     // current state survives draining.
     const drain = fakeRes();
     await call(handler, fakeReq('GET', '/__knob'), drain.res, drain.captured, drain.done);
@@ -154,10 +197,13 @@ describe('triscopeTelemetryPlugin', () => {
     // Create a fake project dir with package.json declaring labs.
     const cwd = join(tmpdir(), `${TEST_PROJECT}-pkg`);
     mkdirSync(cwd, { recursive: true });
-    writeFileSync(join(cwd, 'package.json'), JSON.stringify({
-      name: TEST_PROJECT,
-      triscope: { labs: { ship: '/ship.html', water: '/water.html' } },
-    }));
+    writeFileSync(
+      join(cwd, 'package.json'),
+      JSON.stringify({
+        name: TEST_PROJECT,
+        triscope: { labs: { ship: '/ship.html', water: '/water.html' } },
+      }),
+    );
     const origCwd = process.cwd();
     process.chdir(cwd);
     try {
@@ -183,12 +229,22 @@ describe('triscopeTelemetryPlugin', () => {
     const handler = routes.get('/__manifest')!;
     // Harness POSTs its real manifest.
     const post = fakeRes();
-    await call(handler, fakeReq('POST', '/__manifest', JSON.stringify({
-      element: 'ship',
-      labUrl: '/triscope-ship.html',
-      cameras: [{ name: 'bow' }, { name: 'stern' }],
-      knobs: [{ name: 'wind', current: 0.6 }],
-    })), post.res, post.captured, post.done);
+    await call(
+      handler,
+      fakeReq(
+        'POST',
+        '/__manifest',
+        JSON.stringify({
+          element: 'ship',
+          labUrl: '/triscope-ship.html',
+          cameras: [{ name: 'bow' }, { name: 'stern' }],
+          knobs: [{ name: 'wind', current: 0.6 }],
+        }),
+      ),
+      post.res,
+      post.captured,
+      post.done,
+    );
     const get = fakeRes();
     await call(handler, fakeReq('GET', '/__manifest'), get.res, get.captured, get.done);
     const manifest = JSON.parse(get.captured.body);

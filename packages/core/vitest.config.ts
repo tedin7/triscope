@@ -11,10 +11,7 @@ export default defineConfig({
       // the rest of core fully; the rendered grid + RAF loop are left
       // to the headed-Chromium smoke harness. The .d.ts shim has no
       // executable code.
-      exclude: [
-        'src/harness.ts',
-        'src/three-webgpu-shim.d.ts',
-      ],
+      exclude: ['src/harness.ts', 'src/three-webgpu-shim.d.ts'],
     },
   },
 });

@@ -2,7 +2,7 @@
 // don't have to remember `npm init triscope` vs `npx create-triscope`.
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -35,7 +35,11 @@ export async function runInit({ dir, install }) {
   // wrapping was silently swallowing.
   if (existsSync(target) && statSync(target).isDirectory()) {
     let entries;
-    try { entries = readdirSync(target); } catch { entries = null; }
+    try {
+      entries = readdirSync(target);
+    } catch {
+      entries = null;
+    }
     if (entries && entries.length > 0) {
       console.error(`refusing: ${target} exists and is not empty`);
       process.exit(2);

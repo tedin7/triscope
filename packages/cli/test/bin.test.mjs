@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = resolve(HERE, '..', 'bin', 'triscope.mjs');
@@ -63,7 +63,11 @@ describe('triscope bin — `state` end-to-end against a real fixture', () => {
     writeFileSync(join(CWD, 'package.json'), JSON.stringify({ name: 'pkgbin' }));
     STATE = join(TMP, 'pkgbin-state.json');
   });
-  afterEach(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+  afterEach(() => {
+    try {
+      rmSync(TMP, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('exits 1 + warns when no state file exists', () => {
     const r = run(['state'], { env: { TMPDIR: TMP }, cwd: CWD });
@@ -116,7 +120,11 @@ describe('triscope bin — `auto-capture` end-to-end', () => {
     writeFileSync(join(CWD, 'package.json'), JSON.stringify({ name: 'pkgac' }));
     STATE = join(TMP, 'pkgac-state.json');
   });
-  afterEach(() => { try { rmSync(TMP, { recursive: true, force: true }); } catch {} });
+  afterEach(() => {
+    try {
+      rmSync(TMP, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('stays silent and exits 0 when there is no state file', () => {
     const r = run(['auto-capture'], { env: { TMPDIR: TMP }, cwd: CWD });
@@ -125,10 +133,13 @@ describe('triscope bin — `auto-capture` end-to-end', () => {
   });
 
   it('prints one motion line per element + fps when state has motion probes', () => {
-    writeFileSync(STATE, JSON.stringify({
-      perf: { fps: 60 },
-      elements: { ship: { motion: { hull: { peakToPeak: 1.5, dominantFreqHz: 0.8 } } } },
-    }));
+    writeFileSync(
+      STATE,
+      JSON.stringify({
+        perf: { fps: 60 },
+        elements: { ship: { motion: { hull: { peakToPeak: 1.5, dominantFreqHz: 0.8 } } } },
+      }),
+    );
     const r = run(['auto-capture'], { env: { TMPDIR: TMP }, cwd: CWD });
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/fps=60\.00/);
@@ -136,10 +147,13 @@ describe('triscope bin — `auto-capture` end-to-end', () => {
   });
 
   it('--file with an unrelated path suppresses the print entirely', () => {
-    writeFileSync(STATE, JSON.stringify({
-      perf: { fps: 60 },
-      elements: { ship: { motion: { hull: { peakToPeak: 1.5, dominantFreqHz: 0.8 } } } },
-    }));
+    writeFileSync(
+      STATE,
+      JSON.stringify({
+        perf: { fps: 60 },
+        elements: { ship: { motion: { hull: { peakToPeak: 1.5, dominantFreqHz: 0.8 } } } },
+      }),
+    );
     const r = run(['auto-capture', '--file', '/etc/passwd'], { env: { TMPDIR: TMP }, cwd: CWD });
     expect(r.stdout).toBe('');
   });

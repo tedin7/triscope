@@ -53,15 +53,23 @@ function startChild() {
   });
   child.on('exit', (code, sig) => {
     child = null;
-    if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
-    if (shuttingDown) { process.exit(code ?? 0); return; }
+    if (resetTimer) {
+      clearTimeout(resetTimer);
+      resetTimer = null;
+    }
+    if (shuttingDown) {
+      process.exit(code ?? 0);
+      return;
+    }
     if (sig === 'SIGTERM' || sig === 'SIGINT' || code === 0) {
       // Treat clean exits as "shutdown intent" — don't respawn.
       process.exit(code ?? 0);
       return;
     }
     // eslint-disable-next-line no-console
-    console.error(`[triscope-supervisor] child exited code=${code} sig=${sig}, respawning in ${backoff || 500}ms`);
+    console.error(
+      `[triscope-supervisor] child exited code=${code} sig=${sig}, respawning in ${backoff || 500}ms`,
+    );
     backoff = Math.min(backoff === 0 ? 500 : backoff * 2, MAX_BACKOFF_MS);
     setTimeout(startChild, backoff);
   });
@@ -72,13 +80,17 @@ function startChild() {
   // If the child lives more than 5 s, reset the backoff so the next crash
   // gets a fresh 500ms start (avoids permanent slow-restart on a single
   // late crash after a long healthy stretch).
-  resetTimer = setTimeout(() => { backoff = 0; }, RESET_BACKOFF_AFTER_MS);
+  resetTimer = setTimeout(() => {
+    backoff = 0;
+  }, RESET_BACKOFF_AFTER_MS);
 }
 
 function shutdown(code = 0) {
   shuttingDown = true;
   if (child && !child.killed) {
-    try { child.kill('SIGTERM'); } catch {}
+    try {
+      child.kill('SIGTERM');
+    } catch {}
   }
   // Give the child a moment to flush before exiting the wrapper.
   setTimeout(() => process.exit(code), 200);

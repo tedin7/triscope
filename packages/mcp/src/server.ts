@@ -18,25 +18,26 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { PNG } from 'pngjs';
-
-import {
-  setReference, diffReference, refsPath,
-  composeFilmstrip, motionMagnitudeFromFrames,
-  setReferenceMotion, diffReferenceMotion, refsMotionPaths,
-} from './refs.js';
+import { z } from 'zod';
 import { createBrowserPool } from './browser.js';
 import { createLogger } from './logger.js';
+import {
+  composeFilmstrip,
+  diffReference,
+  diffReferenceMotion,
+  motionMagnitudeFromFrames,
+  refsMotionPaths,
+  refsPath,
+  setReference,
+  setReferenceMotion,
+} from './refs.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,8 +74,14 @@ const logger = createLogger(PROJECT);
 const browserPool = createBrowserPool({ logger });
 const shutdown = () => browserPool.dispose();
 process.on('exit', shutdown);
-process.on('SIGINT', () => { shutdown(); process.exit(130); });
-process.on('SIGTERM', () => { shutdown(); process.exit(143); });
+process.on('SIGINT', () => {
+  shutdown();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  shutdown();
+  process.exit(143);
+});
 export function recordError(source: string, err: unknown) {
   const detail = (err as any)?.stack ?? (err as any)?.message ?? String(err);
   const msg = `[${new Date().toISOString()}] ${source}: ${detail}`;
@@ -128,7 +135,13 @@ export function absolutize(maybePath) {
   return `${DEV_URL}${maybePath.startsWith('/') ? '' : '/'}${maybePath}`;
 }
 
-async function resolveLabUrl({ element, labUrl }: { element?: string; labUrl?: string }): Promise<string> {
+async function resolveLabUrl({
+  element,
+  labUrl,
+}: {
+  element?: string;
+  labUrl?: string;
+}): Promise<string> {
   // 1. Explicit arg wins.
   if (labUrl) return absolutize(labUrl);
   if (!element) return DEV_URL;
@@ -145,14 +158,19 @@ async function resolveLabUrl({ element, labUrl }: { element?: string; labUrl?: s
 async function listElements() {
   const m = await fetchManifest();
   if (!m || !m.elements || Object.keys(m.elements).length === 0) {
-    return { manifest: null, note: 'Dev server is up but no manifest has been posted yet. Load a lab page first.' };
+    return {
+      manifest: null,
+      note: 'Dev server is up but no manifest has been posted yet. Load a lab page first.',
+    };
   }
   return { manifest: m };
 }
 
 async function readTelemetry(path) {
   if (!existsSync(STATE_PATH)) {
-    throw new Error(`No telemetry at ${STATE_PATH}. Is the dev server running and a lab page open?`);
+    throw new Error(
+      `No telemetry at ${STATE_PATH}. Is the dev server running and a lab page open?`,
+    );
   }
   const data = JSON.parse(readFileSync(STATE_PATH, 'utf8'));
   return applyPath(data, path);
@@ -173,7 +191,15 @@ async function setKnob(payload) {
   return { ok: true, count: Array.isArray(payload?.updates) ? payload.updates.length : 1 };
 }
 
-async function captureViews({ element, labUrl, inline = true }: { element?: string; labUrl?: string; inline?: boolean }) {
+async function captureViews({
+  element,
+  labUrl,
+  inline = true,
+}: {
+  element?: string;
+  labUrl?: string;
+  inline?: boolean;
+}) {
   // Persistent Chromium: first call cold-starts (~3s), subsequent calls
   // reuse the same browser/page and just navigate if the URL changed.
   const target = await resolveLabUrl({ element, labUrl });
@@ -199,8 +225,8 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
     // cameras OR captureViews itself errored without returning.
     throw new Error(
       `captureViews returned no images for element="${element ?? '(scene)'}" at ${target}. ` +
-      `Most likely the Element declares no cameras — check the manifest: ` +
-      `mcp__triscope__list_elements.`
+        `Most likely the Element declares no cameras — check the manifest: ` +
+        `mcp__triscope__list_elements.`,
     );
   }
   const written = {};
@@ -244,12 +270,17 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
       gpuProbes = fromHarness;
       gpuProbesSource = 'harness';
     }
-  } catch { /* old core — fall through to server-side */ }
+  } catch {
+    /* old core — fall through to server-side */
+  }
   if (!gpuProbes) {
     gpuProbes = {};
     for (const [cam, b64] of Object.entries(base64ByCam) as [string, string][]) {
-      try { gpuProbes[cam] = probeStatsFromPng(Buffer.from(b64, 'base64')); }
-      catch { /* skip cameras whose PNGs fail to decode */ }
+      try {
+        gpuProbes[cam] = probeStatsFromPng(Buffer.from(b64, 'base64'));
+      } catch {
+        /* skip cameras whose PNGs fail to decode */
+      }
     }
     if (Object.keys(gpuProbes).length === 0) gpuProbes = null;
     else gpuProbesSource = 'server-fallback';
@@ -275,7 +306,11 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
  *  decoded PNG buffer instead of a 2D canvas. Stride-samples to ~2300 px
  *  so the cost is bounded (~5 ms per 1280×720 PNG). */
 export function probeStatsFromPng(pngBuf: Buffer): {
-  luminance: number; p5: number; p95: number; dynamicRange: number; samples: number;
+  luminance: number;
+  p5: number;
+  p95: number;
+  dynamicRange: number;
+  samples: number;
 } {
   const img = PNG.sync.read(pngBuf);
   const stride = Math.max(1, Math.floor(Math.sqrt((img.width * img.height) / 2304)));
@@ -305,7 +340,14 @@ export function probeStatsFromPng(pngBuf: Buffer): {
   };
 }
 
-async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUrl }: any): Promise<string[]> {
+async function captureMotionFramesRaw({
+  element,
+  camera,
+  frames,
+  dt,
+  mode,
+  labUrl,
+}: any): Promise<string[]> {
   // Like captureMotion but for ONE camera, returns the raw base64 PNG frames.
   // Used internally by set_reference_motion + diff_reference_motion.
   const target = await resolveLabUrl({ element, labUrl });
@@ -322,7 +364,14 @@ async function captureMotionFramesRaw({ element, camera, frames, dt, mode, labUr
   return frames_.map((du) => du.replace(/^data:image\/png;base64,/, ''));
 }
 
-async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 'time', labUrl }: any) {
+async function captureMotion({
+  element,
+  camera,
+  frames = 6,
+  dt = 0.25,
+  mode = 'time',
+  labUrl,
+}: any) {
   // Multi-frame capture per camera through the persistent browser pool.
   // Returns per-camera filmstrip base64 + motionMagnitude scalar + telemetry.
   const target = await resolveLabUrl({ element, labUrl });
@@ -332,7 +381,7 @@ async function captureMotion({ element, camera, frames = 6, dt = 0.25, mode = 't
   const { call } = await browserPool.getPage(target);
 
   // Pick the camera set: explicit single name or all cameras for the element.
-  let cameraOrder;
+  let cameraOrder: string[];
   if (camera) {
     cameraOrder = [camera];
   } else {
@@ -427,14 +476,20 @@ const SNAPSHOT_TAG_PREFIX = 'triscope/snapshot/';
 // conditionally everywhere we spawn one of those tools.
 const NEED_SHELL = process.platform === 'win32';
 
-function git(args: string[], cwd: string = process.cwd()): Promise<{ code: number; stdout: string; stderr: string }> {
+function git(
+  args: string[],
+  cwd: string = process.cwd(),
+): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: NEED_SHELL });
-    let stdout = ''; let stderr = '';
+    let stdout = '';
+    let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', reject);
-    child.on('exit', (code) => resolve({ code: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }));
+    child.on('exit', (code) =>
+      resolve({ code: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() }),
+    );
   });
 }
 
@@ -442,7 +497,7 @@ async function assertCleanWt(cwd: string, action: string): Promise<void> {
   const status = await git(['status', '--porcelain'], cwd);
   if (status.stdout.length > 0) {
     throw new Error(
-      `${action} refuses to run with a dirty working tree. Commit, stash, or revert your in-progress edits first.\nDirty paths:\n${status.stdout.split('\n').slice(0, 10).join('\n')}`
+      `${action} refuses to run with a dirty working tree. Commit, stash, or revert your in-progress edits first.\nDirty paths:\n${status.stdout.split('\n').slice(0, 10).join('\n')}`,
     );
   }
 }
@@ -452,7 +507,9 @@ async function fetchPersistedKnobs(): Promise<Record<string, Record<string, unkn
     const r = await fetch(`${DEV_URL}/__knob/current`);
     if (!r.ok) return {};
     return (await r.json()) as Record<string, Record<string, unknown>>;
-  } catch { return {}; }
+  } catch {
+    return {};
+  }
 }
 
 async function snapshot({ name, message }: { name: string; message?: string }) {
@@ -478,16 +535,31 @@ async function snapshot({ name, message }: { name: string; message?: string }) {
   const tag = await git(['tag', '-a', tagName, '-m', tagBody, payload.commit], cwd);
   if (tag.code !== 0) {
     if (tag.stderr.includes('already exists')) {
-      throw new Error(`snapshot "${name}" already exists. Pick a different name or delete the existing tag: git tag -d ${tagName}`);
+      throw new Error(
+        `snapshot "${name}" already exists. Pick a different name or delete the existing tag: git tag -d ${tagName}`,
+      );
     }
     throw new Error(`git tag failed: ${tag.stderr}`);
   }
-  return { ok: true, tag: tagName, ...payload, hint: 'Restore later with mcp__triscope__restore name=' + name };
+  return {
+    ok: true,
+    tag: tagName,
+    ...payload,
+    hint: 'Restore later with mcp__triscope__restore name=' + name,
+  };
 }
 
 async function listSnapshots() {
   const cwd = process.cwd();
-  const list = await git(['tag', '--list', `${SNAPSHOT_TAG_PREFIX}*`, '--format=%(refname:short)|%(creatordate:iso)|%(subject)'], cwd);
+  const list = await git(
+    [
+      'tag',
+      '--list',
+      `${SNAPSHOT_TAG_PREFIX}*`,
+      '--format=%(refname:short)|%(creatordate:iso)|%(subject)',
+    ],
+    cwd,
+  );
   if (list.code !== 0) throw new Error(`git tag --list failed: ${list.stderr}`);
   const snapshots: Array<{ name: string; tag: string; created: string; subject: string }> = [];
   for (const line of list.stdout.split('\n').filter(Boolean)) {
@@ -516,12 +588,16 @@ async function restore({ name }: { name: string }) {
   const jsonStart = body.indexOf('{');
   if (jsonStart < 0) throw new Error(`snapshot ${name} has no JSON payload`);
   let payload: any;
-  try { payload = JSON.parse(body.slice(jsonStart)); }
-  catch { throw new Error(`snapshot ${name} payload is not valid JSON`); }
+  try {
+    payload = JSON.parse(body.slice(jsonStart));
+  } catch {
+    throw new Error(`snapshot ${name} payload is not valid JSON`);
+  }
   // Checkout the commit the snapshot pointed at (detached HEAD — safe,
   // user can create a branch from there if they want to keep working).
   const checkout = await git(['checkout', payload.commit], cwd);
-  if (checkout.code !== 0) throw new Error(`git checkout ${payload.commit} failed: ${checkout.stderr}`);
+  if (checkout.code !== 0)
+    throw new Error(`git checkout ${payload.commit} failed: ${checkout.stderr}`);
   // Re-post knobs. The harness will pick them up via its 100ms poll once
   // it next mounts (or immediately if already mounted on the same commit).
   const updates: Array<{ element: string; key: string; value: unknown }> = [];
@@ -531,13 +607,28 @@ async function restore({ name }: { name: string }) {
     }
   }
   if (updates.length > 0) {
-    try { await setKnob({ updates }); } catch { /* dev server may be down — knobs will re-hydrate on next runLab */ }
+    try {
+      await setKnob({ updates });
+    } catch {
+      /* dev server may be down — knobs will re-hydrate on next runLab */
+    }
   }
-  return { ok: true, tag: tagName, restoredCommit: payload.commit, knobUpdates: updates.length, payload };
+  return {
+    ok: true,
+    tag: tagName,
+    restoredCommit: payload.commit,
+    knobUpdates: updates.length,
+    payload,
+  };
 }
 
 async function autoTune({
-  element, knob, range, target_camera, max_iterations = 12, labUrl,
+  element,
+  knob,
+  range,
+  target_camera,
+  max_iterations = 12,
+  labUrl,
 }: {
   element: string;
   knob: string;
@@ -550,7 +641,7 @@ async function autoTune({
   if (!existsSync(refPath)) {
     throw new Error(
       `auto_tune needs a reference image at ${refPath}. Call set_reference ` +
-      `with element=${element}, camera=${target_camera} first (or paste a PNG path/base64).`
+        `with element=${element}, camera=${target_camera} first (or paste a PNG path/base64).`,
     );
   }
   const target = await resolveLabUrl({ element, labUrl });
@@ -559,7 +650,8 @@ async function autoTune({
   const phi = (1 + Math.sqrt(5)) / 2;
   const invPhi = 1 / phi;
   let [a, b] = range;
-  if (!(b > a)) throw new Error(`auto_tune range must be [min, max] with max > min, got [${a}, ${b}]`);
+  if (!(b > a))
+    throw new Error(`auto_tune range must be [min, max] with max > min, got [${a}, ${b}]`);
 
   const cache = new Map<string, number>(); // memoize SSIM by knob value
   const history: Array<{ iter: number; knob: number; ssim: number; ms: number }> = [];
@@ -581,9 +673,15 @@ async function autoTune({
     });
     const views = cap.result.result.value ?? {};
     const b64 = String(views[target_camera] ?? '').replace(/^data:image\/png;base64,/, '');
-    if (!b64) throw new Error(`auto_tune: captureViews returned no PNG for camera "${target_camera}"`);
+    if (!b64)
+      throw new Error(`auto_tune: captureViews returned no PNG for camera "${target_camera}"`);
     // 4. Diff against reference; we minimise (1 - SSIM).
-    const diff = diffReference({ cwd: process.cwd(), element, camera: target_camera, currentBase64: b64 });
+    const diff = diffReference({
+      cwd: process.cwd(),
+      element,
+      camera: target_camera,
+      currentBase64: b64,
+    });
     const score = diff.ssim;
     cache.set(key, score);
     history.push({ iter: history.length, knob: x, ssim: score, ms: Date.now() - iterStart });
@@ -662,16 +760,18 @@ async function openSelection({ editor }: { editor?: string }) {
   const state: any = JSON.parse(readFileSync(STATE_PATH, 'utf8'));
   const sel = state?.selection;
   if (!sel?.source?.file) {
-    throw new Error('No mesh selected yet. Open the lab in inspect mode and left-click something first.');
+    throw new Error(
+      'No mesh selected yet. Open the lab in inspect mode and left-click something first.',
+    );
   }
   // Convert vite-served URL to a filesystem path: strip protocol+host so
   // `code --goto` resolves it relative to cwd (the project the dev server
   // is serving). Falls through if `file` is already a path.
   const rawFile = String(sel.source.file);
   const fsPath = rawFile
-    .replace(/^https?:\/\/[^/]+\//, '')   // strip http://host:port/
-    .replace(/^file:\/\//, '')             // strip file://
-    .replace(/[?#].*$/, '');               // strip query/hash
+    .replace(/^https?:\/\/[^/]+\//, '') // strip http://host:port/
+    .replace(/^file:\/\//, '') // strip file://
+    .replace(/[?#].*$/, ''); // strip query/hash
   const absPath = fsPath.startsWith('/') ? fsPath : join(process.cwd(), fsPath);
   const line = Number(sel.source.line ?? 1);
   const col = Number(sel.source.col ?? 1);
@@ -682,15 +782,29 @@ async function openSelection({ editor }: { editor?: string }) {
   // `code --goto file:line:col` is the standard VSCode invocation.
   const usesGoto = /code\b/.test(cmd);
   const args = usesGoto ? ['--goto', `${absPath}:${line}:${col}`] : [`${absPath}:${line}:${col}`];
-  return await new Promise<{ ok: boolean; cmd: string; args: string[]; file: string; line: number; col: number; stderr?: string }>((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true, shell: NEED_SHELL });
+  return await new Promise<{
+    ok: boolean;
+    cmd: string;
+    args: string[];
+    file: string;
+    line: number;
+    col: number;
+    stderr?: string;
+  }>((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+      shell: NEED_SHELL,
+    });
     let stderr = '';
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', (err) => reject(new Error(`failed to spawn ${cmd}: ${err.message}`)));
     // Editor commands usually fork-and-detach; don't wait for exit, just
     // confirm we spawned without immediate error.
     setTimeout(() => {
-      try { child.unref(); } catch {}
+      try {
+        child.unref();
+      } catch {}
       resolve({ ok: true, cmd, args, file: absPath, line, col, stderr: stderr || undefined });
     }, 200);
   });
@@ -714,7 +828,7 @@ const tools = [
   {
     name: 'list_elements',
     description:
-      'List elements registered with the running triscope dev server, including each element\'s named cameras and current knob values. Returns the live manifest the harness posted on boot.',
+      "List elements registered with the running triscope dev server, including each element's named cameras and current knob values. Returns the live manifest the harness posted on boot.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -723,7 +837,9 @@ const tools = [
       'Read the latest telemetry snapshot from /tmp/<project>-state.json. Optional jq-style "path" (e.g. ".elements.ship.triangles" or ".perf.fps") returns just that slice. Use this for hidden numeric state (FPS, uniform values, lum stats) where screenshots lie.',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Dot-separated jq-style path into the snapshot.' } },
+      properties: {
+        path: { type: 'string', description: 'Dot-separated jq-style path into the snapshot.' },
+      },
       additionalProperties: false,
     },
   },
@@ -761,9 +877,20 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        element: { type: 'string', description: 'Element name. URL is resolved via manifest/config.' },
-        labUrl: { type: 'string', description: 'Override the lab URL entirely (highest precedence).' },
-        inline: { type: 'boolean', description: 'Return images as inline content blocks. Default false — safer for many-camera elements where the inline base64 payload can blow the MCP stdio message budget. Set true only when you specifically want inline.', default: false },
+        element: {
+          type: 'string',
+          description: 'Element name. URL is resolved via manifest/config.',
+        },
+        labUrl: {
+          type: 'string',
+          description: 'Override the lab URL entirely (highest precedence).',
+        },
+        inline: {
+          type: 'boolean',
+          description:
+            'Return images as inline content blocks. Default false — safer for many-camera elements where the inline base64 payload can blow the MCP stdio message budget. Set true only when you specifically want inline.',
+          default: false,
+        },
       },
       additionalProperties: false,
     },
@@ -777,8 +904,14 @@ const tools = [
       properties: {
         element: { type: 'string', description: 'Element name.' },
         camera: { type: 'string', description: 'Camera name (must match Element.cameras key).' },
-        path: { type: 'string', description: 'Filesystem path to a PNG/JPEG (one of path or base64 required).' },
-        base64: { type: 'string', description: 'Base64-encoded PNG (with or without data: prefix).' },
+        path: {
+          type: 'string',
+          description: 'Filesystem path to a PNG/JPEG (one of path or base64 required).',
+        },
+        base64: {
+          type: 'string',
+          description: 'Base64-encoded PNG (with or without data: prefix).',
+        },
       },
       required: ['element', 'camera'],
       additionalProperties: false,
@@ -793,7 +926,10 @@ const tools = [
       properties: {
         element: { type: 'string', description: 'Element name.' },
         camera: { type: 'string', description: 'Camera name.' },
-        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
+        labUrl: {
+          type: 'string',
+          description: 'Override the lab URL (otherwise resolved like capture_views).',
+        },
       },
       required: ['element', 'camera'],
       additionalProperties: false,
@@ -843,12 +979,26 @@ const tools = [
       type: 'object',
       properties: {
         element: { type: 'string' },
-        camera: { type: 'string', description: 'Single camera. Omit to capture all cameras (one filmstrip each).' },
+        camera: {
+          type: 'string',
+          description: 'Single camera. Omit to capture all cameras (one filmstrip each).',
+        },
         frames: { type: 'number', description: 'Frames per filmstrip. Default 6.' },
         dt: { type: 'number', description: 'Seconds between captured frames. Default 0.25.' },
-        mode: { type: 'string', enum: ['time', 'real'], description: '"time" (default) is deterministic (steps time.value, fast). "real" runs wall-clock (slower; needed for CPU-integrated state).' },
-        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
-        inline: { type: 'boolean', description: 'Include filmstrips as inline images. Default true.' },
+        mode: {
+          type: 'string',
+          enum: ['time', 'real'],
+          description:
+            '"time" (default) is deterministic (steps time.value, fast). "real" runs wall-clock (slower; needed for CPU-integrated state).',
+        },
+        labUrl: {
+          type: 'string',
+          description: 'Override the lab URL (otherwise resolved like capture_views).',
+        },
+        inline: {
+          type: 'boolean',
+          description: 'Include filmstrips as inline images. Default true.',
+        },
       },
       required: ['element'],
       additionalProperties: false,
@@ -866,7 +1016,12 @@ const tools = [
       'Run the headed-Chromium smoke harness against a lab page. Returns exit code, stdout, stderr. Use as a CI gate after a batch of knob changes.',
     inputSchema: {
       type: 'object',
-      properties: { element: { type: 'string', description: 'Element lab to test (defaults to the scene lab).' } },
+      properties: {
+        element: {
+          type: 'string',
+          description: 'Element lab to test (defaults to the scene lab).',
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -878,7 +1033,10 @@ const tools = [
       type: 'object',
       properties: {
         element: { type: 'string', description: 'Element to inspect (must match the manifest).' },
-        camera: { type: 'string', description: 'Starting camera (defaults to the element\'s first declared camera).' },
+        camera: {
+          type: 'string',
+          description: "Starting camera (defaults to the element's first declared camera).",
+        },
       },
       required: ['element'],
       additionalProperties: false,
@@ -891,7 +1049,10 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        editor: { type: 'string', description: 'Override the editor command. Default: $EDITOR or `code`.' },
+        editor: {
+          type: 'string',
+          description: 'Override the editor command. Default: $EDITOR or `code`.',
+        },
       },
       additionalProperties: false,
     },
@@ -899,12 +1060,15 @@ const tools = [
   {
     name: 'snapshot',
     description:
-      'Freeze the current tuning state as a git tag (triscope/snapshot/<name>). Stores the HEAD commit + every persisted knob value across all elements, as JSON inside the tag\'s annotated message — no working-tree files written, no rebase noise. Refuses on a dirty working tree (would silently lose the in-progress edits on restore).',
+      "Freeze the current tuning state as a git tag (triscope/snapshot/<name>). Stores the HEAD commit + every persisted knob value across all elements, as JSON inside the tag's annotated message — no working-tree files written, no rebase noise. Refuses on a dirty working tree (would silently lose the in-progress edits on restore).",
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Snapshot name. Must match [A-Za-z0-9._-]+.' },
-        message: { type: 'string', description: 'Optional human note for `git show triscope/snapshot/<name>`.' },
+        message: {
+          type: 'string',
+          description: 'Optional human note for `git show triscope/snapshot/<name>`.',
+        },
       },
       required: ['name'],
       additionalProperties: false,
@@ -917,7 +1081,10 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Snapshot name (matches `mcp__triscope__list_snapshots`).' },
+        name: {
+          type: 'string',
+          description: 'Snapshot name (matches `mcp__triscope__list_snapshots`).',
+        },
       },
       required: ['name'],
       additionalProperties: false,
@@ -937,17 +1104,32 @@ const tools = [
       type: 'object',
       properties: {
         element: { type: 'string', description: 'Element whose knob to tune.' },
-        knob: { type: 'string', description: 'Knob key (must exist on Element.knobs and be type=number).' },
+        knob: {
+          type: 'string',
+          description: 'Knob key (must exist on Element.knobs and be type=number).',
+        },
         range: {
           type: 'array',
-          description: 'Inclusive [min, max] search bracket. Should cover the knob\'s declared min/max.',
+          description:
+            "Inclusive [min, max] search bracket. Should cover the knob's declared min/max.",
           items: { type: 'number' },
           minItems: 2,
           maxItems: 2,
         },
-        target_camera: { type: 'string', description: 'Camera the SSIM is computed on. Must have a stored reference (set_reference first).' },
-        max_iterations: { type: 'number', description: 'Cap on knob evaluations. Default 12 (golden section converges to ~0.7% of range).' },
-        labUrl: { type: 'string', description: 'Override the lab URL (otherwise resolved like capture_views).' },
+        target_camera: {
+          type: 'string',
+          description:
+            'Camera the SSIM is computed on. Must have a stored reference (set_reference first).',
+        },
+        max_iterations: {
+          type: 'number',
+          description:
+            'Cap on knob evaluations. Default 12 (golden section converges to ~0.7% of range).',
+        },
+        labUrl: {
+          type: 'string',
+          description: 'Override the lab URL (otherwise resolved like capture_views).',
+        },
       },
       required: ['element', 'knob', 'range', 'target_camera'],
       additionalProperties: false,
@@ -961,9 +1143,7 @@ export function jsonResult(value) {
   else if (typeof value === 'string') text = value;
   else text = JSON.stringify(value, null, 2);
   return {
-    content: [
-      { type: 'text', text },
-    ],
+    content: [{ type: 'text', text }],
   };
 }
 
@@ -987,292 +1167,348 @@ export async function startServer() {
       logger.info(`tool:${name}`, outcome, { ms: Date.now() - toolStart, ...(extra ?? {}) });
     try {
       const result = await (async () => {
-      switch (name) {
-        case 'list_elements':
-          return jsonResult(await listElements());
-        case 'read_telemetry':
-          return jsonResult(await readTelemetry(args.path));
-        case 'set_knob': {
-          const value = z.union([z.number(), z.string(), z.boolean()]);
-          const update = z.object({ element: z.string(), key: z.string(), value });
-          const schema = z.union([
-            z.object({ updates: z.array(update).min(1) }),
-            update,
-          ]);
-          const parsed = schema.parse(args);
-          return jsonResult(await setKnob(parsed));
-        }
-        case 'capture_views': {
-          const res = await captureViews({
-            element: args.element as string | undefined,
-            labUrl: args.labUrl as string | undefined,
-            inline: (args.inline ?? false) as boolean,
-          });
-          const { _base64ByCam, ...summary } = res;
-          // Cap inline payload: 12-camera scenes can produce ~20 MB of base64
-          // in a single JSON-RPC message over stdio, which OOM-kills the
-          // server process (no catch, no log — Claude Code then auto-respawns
-          // us and tools are temporarily unavailable). Auto-downgrade to
-          // file paths when over budget and surface a warning so the model
-          // knows to Read the files instead.
-          let inlineBytes = 0;
-          for (const b64 of Object.values(_base64ByCam) as string[]) inlineBytes += b64.length;
-          const inlineCapped = res.inline && inlineBytes > INLINE_PAYLOAD_BUDGET;
-          const finalInline = res.inline && !inlineCapped;
-          const summaryWithWarn = inlineCapped
-            ? { ...summary, inline: false, inlineCapped: true,
-                inlineWarning: `inline payload would have been ${(inlineBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.` }
-            : summary;
-          const text = JSON.stringify(summaryWithWarn, null, 2);
-          if (!finalInline) return { content: [{ type: 'text', text }] };
-          const content: any[] = [{ type: 'text', text }];
-          for (const cam of res.cameraOrder) {
-            const data = _base64ByCam[cam];
-            if (!data) continue;
-            content.push({ type: 'image', data, mimeType: 'image/png' });
+        switch (name) {
+          case 'list_elements':
+            return jsonResult(await listElements());
+          case 'read_telemetry':
+            return jsonResult(await readTelemetry(args.path));
+          case 'set_knob': {
+            const value = z.union([z.number(), z.string(), z.boolean()]);
+            const update = z.object({ element: z.string(), key: z.string(), value });
+            const schema = z.union([z.object({ updates: z.array(update).min(1) }), update]);
+            const parsed = schema.parse(args);
+            return jsonResult(await setKnob(parsed));
           }
-          return { content };
-        }
-        case 'set_reference': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              camera: z.string(),
-              path: z.string().optional(),
-              base64: z.string().optional(),
-            })
-            .parse(args);
-          const result = setReference({ cwd: process.cwd(), ...parsed } as any);
-          return jsonResult(result);
-        }
-        case 'diff_reference': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              camera: z.string(),
-              labUrl: z.string().optional(),
-            })
-            .parse(args);
-          const refExists = existsSync(refsPath(process.cwd(), parsed.element, parsed.camera));
-          if (!refExists) {
-            return {
-              isError: true,
-              content: [{
-                type: 'text',
-                text: `no reference at ${refsPath(process.cwd(), parsed.element, parsed.camera)}. Call set_reference first.`,
-              }],
-            };
-          }
-          const cap = await captureViews({ element: parsed.element, labUrl: parsed.labUrl, inline: true });
-          const currentBase64 = cap._base64ByCam?.[parsed.camera];
-          if (!currentBase64) {
-            return {
-              isError: true,
-              content: [{
-                type: 'text',
-                text: `camera "${parsed.camera}" not found on element "${parsed.element}". Available: ${cap.cameraOrder.join(', ')}`,
-              }],
-            };
-          }
-          const diff = diffReference({
-            cwd: process.cwd(),
-            element: parsed.element,
-            camera: parsed.camera,
-            currentBase64,
-          });
-          return {
-            content: [
-              { type: 'text', text: JSON.stringify({
-                camera: diff.camera,
-                refPath: diff.refPath,
-                meanAbsDiff: diff.meanAbsDiff,
-                ssim: diff.ssim,
-                hint: 'meanAbsDiff: 0 = identical, ~30 = visibly close, >80 = clearly different. ssim: 1.0 = identical, 0.9+ = visually close, <0.7 = clearly different. Prefer SSIM for shader convergence (robust to AA noise).',
-              }, null, 2) },
-              { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
-            ],
-          };
-        }
-        case 'set_reference_motion': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              camera: z.string(),
-              frames: z.number().int().min(2).max(32).optional(),
-              dt: z.number().positive().max(5).optional(),
-              mode: z.enum(['time', 'real']).optional(),
-              labUrl: z.string().optional(),
-            })
-            .parse(args);
-          const opts = { frames: parsed.frames ?? 6, dt: parsed.dt ?? 0.25, mode: parsed.mode ?? 'time' };
-          const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
-          const r = setReferenceMotion({
-            cwd: process.cwd(),
-            element: parsed.element,
-            camera: parsed.camera,
-            frameBase64s: frameB64s,
-            meta: opts,
-          });
-          return jsonResult(r);
-        }
-        case 'diff_reference_motion': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              camera: z.string(),
-              frames: z.number().int().min(2).max(32).optional(),
-              dt: z.number().positive().max(5).optional(),
-              mode: z.enum(['time', 'real']).optional(),
-              labUrl: z.string().optional(),
-            })
-            .parse(args);
-          const { filmstrip, meta } = refsMotionPaths(process.cwd(), parsed.element, parsed.camera);
-          if (!existsSync(filmstrip)) {
-            return {
-              isError: true,
-              content: [{ type: 'text', text: `no motion reference at ${filmstrip}. Call set_reference_motion first.` }],
-            };
-          }
-          // Inherit frame/dt/mode from saved metadata so the comparison is fair.
-          let savedMeta: any = {};
-          try { savedMeta = existsSync(meta) ? JSON.parse(readFileSync(meta, 'utf8')) : {}; } catch {}
-          const opts = {
-            frames: parsed.frames ?? savedMeta.frames ?? 6,
-            dt: parsed.dt ?? savedMeta.dt ?? 0.25,
-            mode: parsed.mode ?? savedMeta.mode ?? 'time',
-          };
-          const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
-          const diff = diffReferenceMotion({
-            cwd: process.cwd(),
-            element: parsed.element,
-            camera: parsed.camera,
-            currentFrames: frameB64s,
-          });
-          return {
-            content: [
-              { type: 'text', text: JSON.stringify({
-                  camera: parsed.camera,
-                  refFilmstripPath: diff.refFilmstripPath,
-                  refMeta: diff.refMeta,
-                  motionDiff: diff.motionDiff,
-                  hint: '0 = identical animation, >5 = visible drift, >30 = clearly different',
-                }, null, 2) },
-              { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
-            ],
-          };
-        }
-        case 'capture_motion': {
-          const parsed = z
-            .object({
-              element: z.string(),
-              camera: z.string().optional(),
-              frames: z.number().int().min(2).max(32).optional(),
-              dt: z.number().positive().max(5).optional(),
-              mode: z.enum(['time', 'real']).optional(),
-              labUrl: z.string().optional(),
-              inline: z.boolean().optional(),
-            })
-            .parse(args);
-          const res = await captureMotion(parsed);
-          const { _filmstripBase64, ...summary } = res;
-          // Same inline budget guard as capture_views — filmstrips can be
-          // even bigger (N frames per camera) so easier to blow the cap.
-          let filmstripBytes = 0;
-          for (const b64 of Object.values(_filmstripBase64) as string[]) filmstripBytes += b64.length;
-          const userWantsInline = parsed.inline !== false;
-          const filmstripCapped = userWantsInline && filmstripBytes > INLINE_PAYLOAD_BUDGET;
-          const finalInline = userWantsInline && !filmstripCapped;
-          const text = JSON.stringify({
-            ...summary,
-            ...(filmstripCapped
-              ? { inlineCapped: true, inlineWarning: `filmstrip payload would have been ${(filmstripBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.` }
-              : {}),
-            hint: '<1 = static, >5 = visible motion, >20 = vigorous (in motionMagnitude)',
-          }, null, 2);
-          if (!finalInline) return { content: [{ type: 'text', text }] };
-          const content: any[] = [{ type: 'text', text }];
-          for (const cam of res.cameraOrder) {
-            const data = _filmstripBase64[cam];
-            if (data) content.push({ type: 'image', data, mimeType: 'image/png' });
-          }
-          return { content };
-        }
-        case 'health': {
-          let devServerOk = false;
-          let manifestElements = [];
-          try {
-            const r = await fetch(`${DEV_URL}/__manifest`, { signal: AbortSignal.timeout(2000) });
-            if (r.ok) {
-              const m: any = await r.json();
-              devServerOk = true;
-              manifestElements = Object.keys(m?.elements ?? {});
+          case 'capture_views': {
+            const res = await captureViews({
+              element: args.element as string | undefined,
+              labUrl: args.labUrl as string | undefined,
+              inline: (args.inline ?? false) as boolean,
+            });
+            const { _base64ByCam, ...summary } = res;
+            // Cap inline payload: 12-camera scenes can produce ~20 MB of base64
+            // in a single JSON-RPC message over stdio, which OOM-kills the
+            // server process (no catch, no log — Claude Code then auto-respawns
+            // us and tools are temporarily unavailable). Auto-downgrade to
+            // file paths when over budget and surface a warning so the model
+            // knows to Read the files instead.
+            let inlineBytes = 0;
+            for (const b64 of Object.values(_base64ByCam) as string[]) inlineBytes += b64.length;
+            const inlineCapped = res.inline && inlineBytes > INLINE_PAYLOAD_BUDGET;
+            const finalInline = res.inline && !inlineCapped;
+            const summaryWithWarn = inlineCapped
+              ? {
+                  ...summary,
+                  inline: false,
+                  inlineCapped: true,
+                  inlineWarning: `inline payload would have been ${(inlineBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.`,
+                }
+              : summary;
+            const text = JSON.stringify(summaryWithWarn, null, 2);
+            if (!finalInline) return { content: [{ type: 'text', text }] };
+            const content: any[] = [{ type: 'text', text }];
+            for (const cam of res.cameraOrder) {
+              const data = _base64ByCam[cam];
+              if (!data) continue;
+              content.push({ type: 'image', data, mimeType: 'image/png' });
             }
-          } catch {}
-          const mem = process.memoryUsage();
-          return jsonResult({
-            uptimeSec: Math.round((Date.now() - SERVER_START_TIME) / 1000),
-            pid: process.pid,
-            nodeVersion: process.version,
-            project: PROJECT,
-            devServer: { url: DEV_URL, reachable: devServerOk, manifestElements },
-            memoryMB: {
-              rss: +(mem.rss / 1048576).toFixed(1),
-              heapUsed: +(mem.heapUsed / 1048576).toFixed(1),
-              external: +(mem.external / 1048576).toFixed(1),
-            },
-            logPath: logger.logPath,
-            recentErrors,
-          });
+            return { content };
+          }
+          case 'set_reference': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string(),
+                path: z.string().optional(),
+                base64: z.string().optional(),
+              })
+              .parse(args);
+            const result = setReference({ cwd: process.cwd(), ...parsed } as any);
+            return jsonResult(result);
+          }
+          case 'diff_reference': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string(),
+                labUrl: z.string().optional(),
+              })
+              .parse(args);
+            const refExists = existsSync(refsPath(process.cwd(), parsed.element, parsed.camera));
+            if (!refExists) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: 'text',
+                    text: `no reference at ${refsPath(process.cwd(), parsed.element, parsed.camera)}. Call set_reference first.`,
+                  },
+                ],
+              };
+            }
+            const cap = await captureViews({
+              element: parsed.element,
+              labUrl: parsed.labUrl,
+              inline: true,
+            });
+            const currentBase64 = cap._base64ByCam?.[parsed.camera];
+            if (!currentBase64) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: 'text',
+                    text: `camera "${parsed.camera}" not found on element "${parsed.element}". Available: ${cap.cameraOrder.join(', ')}`,
+                  },
+                ],
+              };
+            }
+            const diff = diffReference({
+              cwd: process.cwd(),
+              element: parsed.element,
+              camera: parsed.camera,
+              currentBase64,
+            });
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(
+                    {
+                      camera: diff.camera,
+                      refPath: diff.refPath,
+                      meanAbsDiff: diff.meanAbsDiff,
+                      ssim: diff.ssim,
+                      hint: 'meanAbsDiff: 0 = identical, ~30 = visibly close, >80 = clearly different. ssim: 1.0 = identical, 0.9+ = visually close, <0.7 = clearly different. Prefer SSIM for shader convergence (robust to AA noise).',
+                    },
+                    null,
+                    2,
+                  ),
+                },
+                { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
+              ],
+            };
+          }
+          case 'set_reference_motion': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string(),
+                frames: z.number().int().min(2).max(32).optional(),
+                dt: z.number().positive().max(5).optional(),
+                mode: z.enum(['time', 'real']).optional(),
+                labUrl: z.string().optional(),
+              })
+              .parse(args);
+            const opts = {
+              frames: parsed.frames ?? 6,
+              dt: parsed.dt ?? 0.25,
+              mode: parsed.mode ?? 'time',
+            };
+            const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
+            const r = setReferenceMotion({
+              cwd: process.cwd(),
+              element: parsed.element,
+              camera: parsed.camera,
+              frameBase64s: frameB64s,
+              meta: opts,
+            });
+            return jsonResult(r);
+          }
+          case 'diff_reference_motion': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string(),
+                frames: z.number().int().min(2).max(32).optional(),
+                dt: z.number().positive().max(5).optional(),
+                mode: z.enum(['time', 'real']).optional(),
+                labUrl: z.string().optional(),
+              })
+              .parse(args);
+            const { filmstrip, meta } = refsMotionPaths(
+              process.cwd(),
+              parsed.element,
+              parsed.camera,
+            );
+            if (!existsSync(filmstrip)) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: 'text',
+                    text: `no motion reference at ${filmstrip}. Call set_reference_motion first.`,
+                  },
+                ],
+              };
+            }
+            // Inherit frame/dt/mode from saved metadata so the comparison is fair.
+            let savedMeta: any = {};
+            try {
+              savedMeta = existsSync(meta) ? JSON.parse(readFileSync(meta, 'utf8')) : {};
+            } catch {}
+            const opts = {
+              frames: parsed.frames ?? savedMeta.frames ?? 6,
+              dt: parsed.dt ?? savedMeta.dt ?? 0.25,
+              mode: parsed.mode ?? savedMeta.mode ?? 'time',
+            };
+            const frameB64s = await captureMotionFramesRaw({ ...parsed, ...opts });
+            const diff = diffReferenceMotion({
+              cwd: process.cwd(),
+              element: parsed.element,
+              camera: parsed.camera,
+              currentFrames: frameB64s,
+            });
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(
+                    {
+                      camera: parsed.camera,
+                      refFilmstripPath: diff.refFilmstripPath,
+                      refMeta: diff.refMeta,
+                      motionDiff: diff.motionDiff,
+                      hint: '0 = identical animation, >5 = visible drift, >30 = clearly different',
+                    },
+                    null,
+                    2,
+                  ),
+                },
+                { type: 'image', data: diff.compositeBase64, mimeType: 'image/png' },
+              ],
+            };
+          }
+          case 'capture_motion': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string().optional(),
+                frames: z.number().int().min(2).max(32).optional(),
+                dt: z.number().positive().max(5).optional(),
+                mode: z.enum(['time', 'real']).optional(),
+                labUrl: z.string().optional(),
+                inline: z.boolean().optional(),
+              })
+              .parse(args);
+            const res = await captureMotion(parsed);
+            const { _filmstripBase64, ...summary } = res;
+            // Same inline budget guard as capture_views — filmstrips can be
+            // even bigger (N frames per camera) so easier to blow the cap.
+            let filmstripBytes = 0;
+            for (const b64 of Object.values(_filmstripBase64) as string[])
+              filmstripBytes += b64.length;
+            const userWantsInline = parsed.inline !== false;
+            const filmstripCapped = userWantsInline && filmstripBytes > INLINE_PAYLOAD_BUDGET;
+            const finalInline = userWantsInline && !filmstripCapped;
+            const text = JSON.stringify(
+              {
+                ...summary,
+                ...(filmstripCapped
+                  ? {
+                      inlineCapped: true,
+                      inlineWarning: `filmstrip payload would have been ${(filmstripBytes / 1048576).toFixed(1)} MB (limit ${(INLINE_PAYLOAD_BUDGET / 1048576).toFixed(0)} MB) — files are on disk, Read them by path.`,
+                    }
+                  : {}),
+                hint: '<1 = static, >5 = visible motion, >20 = vigorous (in motionMagnitude)',
+              },
+              null,
+              2,
+            );
+            if (!finalInline) return { content: [{ type: 'text', text }] };
+            const content: any[] = [{ type: 'text', text }];
+            for (const cam of res.cameraOrder) {
+              const data = _filmstripBase64[cam];
+              if (data) content.push({ type: 'image', data, mimeType: 'image/png' });
+            }
+            return { content };
+          }
+          case 'health': {
+            let devServerOk = false;
+            let manifestElements = [];
+            try {
+              const r = await fetch(`${DEV_URL}/__manifest`, { signal: AbortSignal.timeout(2000) });
+              if (r.ok) {
+                const m: any = await r.json();
+                devServerOk = true;
+                manifestElements = Object.keys(m?.elements ?? {});
+              }
+            } catch {}
+            const mem = process.memoryUsage();
+            return jsonResult({
+              uptimeSec: Math.round((Date.now() - SERVER_START_TIME) / 1000),
+              pid: process.pid,
+              nodeVersion: process.version,
+              project: PROJECT,
+              devServer: { url: DEV_URL, reachable: devServerOk, manifestElements },
+              memoryMB: {
+                rss: +(mem.rss / 1048576).toFixed(1),
+                heapUsed: +(mem.heapUsed / 1048576).toFixed(1),
+                external: +(mem.external / 1048576).toFixed(1),
+              },
+              logPath: logger.logPath,
+              recentErrors,
+            });
+          }
+          case 'run_smoke':
+            return jsonResult(await runSmoke({ element: args.element }));
+          case 'inspect': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                camera: z.string().optional(),
+              })
+              .parse(args);
+            return jsonResult(await inspect({ element: parsed.element, camera: parsed.camera }));
+          }
+          case 'open_selection': {
+            const parsed = z
+              .object({
+                editor: z.string().optional(),
+              })
+              .parse(args);
+            return jsonResult(await openSelection(parsed));
+          }
+          case 'snapshot': {
+            const parsed = z
+              .object({
+                name: z.string(),
+                message: z.string().optional(),
+              })
+              .parse(args);
+            return jsonResult(await snapshot({ name: parsed.name, message: parsed.message }));
+          }
+          case 'restore': {
+            const parsed = z.object({ name: z.string() }).parse(args);
+            return jsonResult(await restore({ name: parsed.name }));
+          }
+          case 'list_snapshots':
+            return jsonResult(await listSnapshots());
+          case 'auto_tune': {
+            const parsed = z
+              .object({
+                element: z.string(),
+                knob: z.string(),
+                range: z.tuple([z.number(), z.number()]),
+                target_camera: z.string(),
+                max_iterations: z.number().int().min(2).max(50).optional(),
+                labUrl: z.string().optional(),
+              })
+              .parse(args);
+            return jsonResult(
+              await autoTune({
+                element: parsed.element,
+                knob: parsed.knob,
+                range: [parsed.range[0], parsed.range[1]],
+                target_camera: parsed.target_camera,
+                max_iterations: parsed.max_iterations,
+                labUrl: parsed.labUrl,
+              }),
+            );
+          }
+          default:
+            return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
         }
-        case 'run_smoke':
-          return jsonResult(await runSmoke({ element: args.element }));
-        case 'inspect': {
-          const parsed = z.object({
-            element: z.string(),
-            camera: z.string().optional(),
-          }).parse(args);
-          return jsonResult(await inspect({ element: parsed.element, camera: parsed.camera }));
-        }
-        case 'open_selection': {
-          const parsed = z.object({
-            editor: z.string().optional(),
-          }).parse(args);
-          return jsonResult(await openSelection(parsed));
-        }
-        case 'snapshot': {
-          const parsed = z.object({
-            name: z.string(),
-            message: z.string().optional(),
-          }).parse(args);
-          return jsonResult(await snapshot({ name: parsed.name, message: parsed.message }));
-        }
-        case 'restore': {
-          const parsed = z.object({ name: z.string() }).parse(args);
-          return jsonResult(await restore({ name: parsed.name }));
-        }
-        case 'list_snapshots':
-          return jsonResult(await listSnapshots());
-        case 'auto_tune': {
-          const parsed = z.object({
-            element: z.string(),
-            knob: z.string(),
-            range: z.tuple([z.number(), z.number()]),
-            target_camera: z.string(),
-            max_iterations: z.number().int().min(2).max(50).optional(),
-            labUrl: z.string().optional(),
-          }).parse(args);
-          return jsonResult(await autoTune({
-            element: parsed.element,
-            knob: parsed.knob,
-            range: [parsed.range[0], parsed.range[1]],
-            target_camera: parsed.target_camera,
-            max_iterations: parsed.max_iterations,
-            labUrl: parsed.labUrl,
-          }));
-        }
-        default:
-          return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
-      }
       })();
       finish('succeeded');
       return result;

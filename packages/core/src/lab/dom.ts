@@ -39,11 +39,7 @@ function ensureStyleInjected(): void {
   document.head.appendChild(style);
 }
 
-function getOrCreate<T extends HTMLElement>(
-  id: string,
-  tag: string,
-  parent: HTMLElement,
-): T {
+function getOrCreate<T extends HTMLElement>(id: string, tag: string, parent: HTMLElement): T {
   const existing = document.getElementById(id) as T | null;
   if (existing) return existing;
   const el = document.createElement(tag) as T;

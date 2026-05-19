@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite';
 import { triscopeTelemetryPlugin } from '@triscope/core/vite';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [triscopeTelemetryPlugin()],

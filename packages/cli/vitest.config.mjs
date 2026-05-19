@@ -11,9 +11,9 @@ export default defineConfig({
       // by unit tests, so excluding them gives an honest line-coverage
       // number for what we actually test.
       exclude: [
-        'src/dev.mjs',     // thin spawn(vite) proxy
-        'src/smoke.mjs',   // headed-Chromium smoke harness
-        'bin/triscope.mjs',// dispatcher: exercised via subprocess in bin.test
+        'src/dev.mjs', // thin spawn(vite) proxy
+        'src/smoke.mjs', // headed-Chromium smoke harness
+        'bin/triscope.mjs', // dispatcher: exercised via subprocess in bin.test
       ],
     },
   },

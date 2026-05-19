@@ -16,10 +16,10 @@
  * Honors $CHROME_BIN / $PUPPETEER_EXECUTABLE_PATH (falls back to `chromium`).
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Random port in the 5300-5400 range to avoid colliding with running dev
@@ -56,7 +56,9 @@ function cdpFactory(ws, consoleLog) {
       const txt = (m.params.args ?? []).map((a) => a.value ?? a.description ?? '').join(' ');
       consoleLog.push(`[${m.params.type}] ${txt}`);
     } else if (consoleLog && m.method === 'Runtime.exceptionThrown') {
-      consoleLog.push(`[exception] ${m.params.exceptionDetails?.text ?? ''} ${m.params.exceptionDetails?.exception?.description ?? ''}`);
+      consoleLog.push(
+        `[exception] ${m.params.exceptionDetails?.text ?? ''} ${m.params.exceptionDetails?.exception?.description ?? ''}`,
+      );
     }
   };
   return (method, params = {}) =>
@@ -107,7 +109,9 @@ async function main() {
   // Clean stale telemetry from prior runs so readState() can never read
   // values that were written by an earlier session with different knobs.
   for (const p of [STATE_FILE, STATE_FILE_SANITIZED]) {
-    try { rmSync(p, { force: true }); } catch {}
+    try {
+      rmSync(p, { force: true });
+    } catch {}
   }
 
   // 1. Boot vite on a strict random port so we don't collide with another
@@ -116,12 +120,16 @@ async function main() {
   // kill the whole tree.
   // npm workspaces hoist vite to the monorepo root — resolve via npm exec
   // so the binary is found in either local or hoisted .bin/.
-  const vite = spawn('npx', ['--no-install', 'vite', '--port', String(SMOKE_PORT), '--strictPort'], {
-    cwd: HERE,
-    env: { ...process.env, BROWSER: 'none' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
+  const vite = spawn(
+    'npx',
+    ['--no-install', 'vite', '--port', String(SMOKE_PORT), '--strictPort'],
+    {
+      cwd: HERE,
+      env: { ...process.env, BROWSER: 'none' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    },
+  );
   let viteLog = '';
   vite.stdout.on('data', (c) => (viteLog += c));
   vite.stderr.on('data', (c) => (viteLog += c));
@@ -136,27 +144,29 @@ async function main() {
     // even with Vulkan flags. Set SMOKE_HEADLESS=1 (for CI) to opt in and
     // accept that some shaders may fail to compile. Local dev (and CI with
     // xvfb) should use the default headed path.
-    const headlessArgs = process.env.SMOKE_HEADLESS ? [
-      '--headless=new',
-      '--use-angle=vulkan',
-      '--enable-features=Vulkan',
-    ] : [];
+    const headlessArgs = process.env.SMOKE_HEADLESS
+      ? ['--headless=new', '--use-angle=vulkan', '--enable-features=Vulkan']
+      : [];
     // Force X11 ozone even under Wayland: chrome's WebGPU backend uses
     // Vulkan, and Wayland ozone is documented incompatible with Vulkan
     // (chrome stderr: "'--ozone-platform=wayland' is not compatible with
     // Vulkan. Consider switching to '--ozone-platform=x11'"). On a Wayland
     // session we rely on Xwayland to bridge.
     const ozoneArgs = process.env.SMOKE_HEADLESS ? [] : ['--ozone-platform=x11'];
-    chrome = spawn(CHROME, [
-      ...headlessArgs,
-      ...ozoneArgs,
-      '--enable-unsafe-webgpu',
-      '--ignore-gpu-blocklist',
-      `--user-data-dir=${profileDir}`,
-      `--remote-debugging-port=${PORT}`,
-      '--window-size=1600,900',
-      URL,
-    ], { stdio: 'ignore' });
+    chrome = spawn(
+      CHROME,
+      [
+        ...headlessArgs,
+        ...ozoneArgs,
+        '--enable-unsafe-webgpu',
+        '--ignore-gpu-blocklist',
+        `--user-data-dir=${profileDir}`,
+        `--remote-debugging-port=${PORT}`,
+        '--window-size=1600,900',
+        URL,
+      ],
+      { stdio: 'ignore' },
+    );
 
     // 3. Wait for CDP, attach to the lab tab.
     let pages = null;
@@ -166,13 +176,22 @@ async function main() {
       try {
         pages = await fetch(`http://127.0.0.1:${PORT}/json`).then((r) => r.json());
         // Wait for the actual lab page tab, not a blank/extension page.
-        page = Array.isArray(pages) ? pages.find((p) => p.type === 'page' && p.url?.startsWith(URL)) : null;
+        page = Array.isArray(pages)
+          ? pages.find((p) => p.type === 'page' && p.url?.startsWith(URL))
+          : null;
         if (page) break;
       } catch {}
       await wait(250);
     }
-    if (!page) fail('cdp-attach', { error: 'lab tab never appeared in CDP page list within 15s', pages, viteLog });
-    const { default: WebSocketCtor } = await import('ws').then((m) => ({ default: m.WebSocket })).catch(() => ({ default: globalThis.WebSocket }));
+    if (!page)
+      fail('cdp-attach', {
+        error: 'lab tab never appeared in CDP page list within 15s',
+        pages,
+        viteLog,
+      });
+    const { default: WebSocketCtor } = await import('ws')
+      .then((m) => ({ default: m.WebSocket }))
+      .catch(() => ({ default: globalThis.WebSocket }));
     const ws = new WebSocketCtor(page.webSocketDebuggerUrl);
     await new Promise((res, rej) => {
       ws.onopen = res;
@@ -189,12 +208,23 @@ async function main() {
         expression: '!!(window.__TRISCOPE__ && window.__TRISCOPE__.captureViews)',
         returnByValue: true,
       });
-      if (p.result.result.value) { mounted = true; break; }
+      if (p.result.result.value) {
+        mounted = true;
+        break;
+      }
       await wait(500);
     }
     if (!mounted) {
-      const err = await call('Runtime.evaluate', { expression: 'document.getElementById("boot")?.textContent ?? ""', returnByValue: true });
-      fail('mount', { error: 'window.__TRISCOPE__ never appeared within 30s', bootMsg: err.result.result.value, viteLog, consoleAll: consoleLog });
+      const err = await call('Runtime.evaluate', {
+        expression: 'document.getElementById("boot")?.textContent ?? ""',
+        returnByValue: true,
+      });
+      fail('mount', {
+        error: 'window.__TRISCOPE__ never appeared within 30s',
+        bootMsg: err.result.result.value,
+        viteLog,
+        consoleAll: consoleLog,
+      });
     }
 
     // 5. Wait until the harness has written telemetry at least once (every
@@ -210,7 +240,11 @@ async function main() {
       }
     }
     if (!baseTel || !(baseTel?.perf?.fps > 1)) {
-      fail('telemetry-warmup', { error: 'no telemetry with fps>1 within 15s', baseTel, consoleAll: consoleLog });
+      fail('telemetry-warmup', {
+        error: 'no telemetry with fps>1 within 15s',
+        baseTel,
+        consoleAll: consoleLog,
+      });
     }
     // Give the motion-probe ring buffer a couple of seconds of samples to
     // accumulate (otherwise peakToPeak is undefined or near zero).
@@ -258,7 +292,9 @@ async function main() {
     ]);
     // Diagnostic: check that the knob actually landed in the vite plugin's
     // persisted state. If this is empty, the POST never reached the plugin.
-    const knobCurrent = await fetch(`${URL}__knob/current`).then((r) => r.json()).catch(() => ({}));
+    const knobCurrent = await fetch(`${URL}__knob/current`)
+      .then((r) => r.json())
+      .catch(() => ({}));
     await wait(1500); // knob poll (100ms) + telemetry tick (500ms) + safety
     const afterTel = readState();
     const afterWind = afterTel?.elements?.galleon?.uWindPressure;
@@ -267,10 +303,20 @@ async function main() {
 
     // 7. Assertions.
     if (typeof baseFps !== 'number' || baseFps < 5) {
-      fail('fps', { error: 'fps below 5 — renderer not stepping', baselineFps: baseFps, consoleAll: consoleLog });
+      fail('fps', {
+        error: 'fps below 5 — renderer not stepping',
+        baselineFps: baseFps,
+        consoleAll: consoleLog,
+      });
     }
     if (typeof afterWind !== 'number' || Math.abs(afterWind - 1.6) > 0.1) {
-      fail('telemetry-knob', { expected: 1.6, got: afterWind, baseline: baseWind, knobCurrent, consoleAll: consoleLog });
+      fail('telemetry-knob', {
+        expected: 1.6,
+        got: afterWind,
+        baseline: baseWind,
+        knobCurrent,
+        consoleAll: consoleLog,
+      });
     }
     // Motion probe peak-to-peak should be non-trivially > 0 in both states,
     // proving the per-frame probe sampler is alive and the 120-sample ring
@@ -297,11 +343,17 @@ async function main() {
       for (const cam of Object.keys(afterViews)) {
         const dataUrl = afterViews[cam];
         if (typeof dataUrl !== 'string') continue;
-        writeFileSync(join(OUT, `after-${cam}.png`), Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64'));
+        writeFileSync(
+          join(OUT, `after-${cam}.png`),
+          Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64'),
+        );
         if (baseViews[cam] !== dataUrl) visualDiffCount += 1;
       }
       if (visualDiffCount === 0) {
-        fail('visual-change', { error: 'all camera PNGs byte-identical after knob change', cameras });
+        fail('visual-change', {
+          error: 'all camera PNGs byte-identical after knob change',
+          cameras,
+        });
       }
 
       // GPU probe assertion: captureViews populates window.__TRISCOPE__
@@ -314,35 +366,51 @@ async function main() {
       gpuProbes = JSON.parse(probesResp.result.result.value);
       const dark = Object.entries(gpuProbes).filter(([, s]) => s && s.luminance < 0.005);
       if (dark.length === Object.keys(gpuProbes).length && Object.keys(gpuProbes).length > 0) {
-        fail('gpu-probe', { error: 'every camera reported luminance < 0.005 — frame is black', gpuProbes });
+        fail('gpu-probe', {
+          error: 'every camera reported luminance < 0.005 — frame is black',
+          gpuProbes,
+        });
       }
     }
 
-    console.log(JSON.stringify({
-      ok: true,
-      cameras: cameras.length,
-      baselineFps: baseFps,
-      afterFps: afterFps,
-      baselineWindPressure: baseWind,
-      afterWindPressure: afterWind,
-      baselineWanderPeak: baseWanderPeak,
-      afterWanderPeak: afterWanderPeak,
-      visualDiff: visualDiffSupported
-        ? { supported: true, changedCameras: visualDiffCount }
-        : { supported: false, note: 'canvas backing buffer never reached capture size — visual diff skipped' },
-      gpuProbes,
-      outDir: OUT,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          cameras: cameras.length,
+          baselineFps: baseFps,
+          afterFps: afterFps,
+          baselineWindPressure: baseWind,
+          afterWindPressure: afterWind,
+          baselineWanderPeak: baseWanderPeak,
+          afterWanderPeak: afterWanderPeak,
+          visualDiff: visualDiffSupported
+            ? { supported: true, changedCameras: visualDiffCount }
+            : {
+                supported: false,
+                note: 'canvas backing buffer never reached capture size — visual diff skipped',
+              },
+          gpuProbes,
+          outDir: OUT,
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     if (chrome && !chrome.killed) chrome.kill();
     if (!vite.killed) {
-      try { process.kill(-vite.pid, 'SIGTERM'); } catch {}
+      try {
+        process.kill(-vite.pid, 'SIGTERM');
+      } catch {}
       vite.kill('SIGTERM');
     }
   }
 }
 
 main().catch((e) => {
-  console.error(JSON.stringify({ ok: false, stage: 'unhandled', error: String(e?.stack ?? e) }, null, 2));
+  console.error(
+    JSON.stringify({ ok: false, stage: 'unhandled', error: String(e?.stack ?? e) }, null, 2),
+  );
   process.exit(1);
 });

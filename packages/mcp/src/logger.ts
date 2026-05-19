@@ -15,8 +15,8 @@
  * Designed for grep / jq, not for fancy log libraries.
  */
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
@@ -48,10 +48,16 @@ export function createLogger(project: string): Logger {
       if (size < MAX_LOG_BYTES) return;
       const rolled = `${logPath}.1`;
       if (existsSync(rolled)) {
-        try { unlinkSync(rolled); } catch { /* best-effort */ }
+        try {
+          unlinkSync(rolled);
+        } catch {
+          /* best-effort */
+        }
       }
       renameSync(logPath, rolled);
-    } catch { /* never let logging crash the server */ }
+    } catch {
+      /* never let logging crash the server */
+    }
   }
 
   function write(entry: LogEntry): void {
@@ -68,7 +74,9 @@ export function createLogger(project: string): Logger {
     try {
       rotateIfNeeded();
       appendFileSync(logPath, JSON.stringify(entry) + '\n');
-    } catch { /* swallow */ }
+    } catch {
+      /* swallow */
+    }
   }
 
   function make(level: LogLevel) {

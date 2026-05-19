@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Phase-2 unit coverage on the pure helpers inside the MCP server module.
@@ -27,13 +27,18 @@ describe('readProjectName', () => {
   let dir: string;
   let saved: string | undefined;
   beforeEach(() => {
-    dir = join(tmpdir(), `mcp-srv-projname-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    dir = join(
+      tmpdir(),
+      `mcp-srv-projname-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     mkdirSync(dir, { recursive: true });
     saved = process.env.TRISCOPE_PROJECT;
     delete process.env.TRISCOPE_PROJECT;
   });
   afterEach(() => {
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
     if (saved === undefined) delete process.env.TRISCOPE_PROJECT;
     else process.env.TRISCOPE_PROJECT = saved;
   });
@@ -94,25 +99,38 @@ describe('applyPath (jq-style)', () => {
 describe('readProjectLabMap', () => {
   let dir: string;
   beforeEach(() => {
-    dir = join(tmpdir(), `mcp-srv-labmap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    dir = join(
+      tmpdir(),
+      `mcp-srv-labmap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     mkdirSync(dir, { recursive: true });
   });
-  afterEach(() => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+  afterEach(() => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
+  });
 
   it('returns {} when no package.json exists', () => {
     expect(readProjectLabMap(dir)).toEqual({});
   });
 
   it('returns the triscope.labs object when present', () => {
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      name: 'demo',
-      triscope: { labs: { ship: '/ship.html', water: '/water.html' } },
-    }));
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'demo',
+        triscope: { labs: { ship: '/ship.html', water: '/water.html' } },
+      }),
+    );
     expect(readProjectLabMap(dir)).toEqual({ ship: '/ship.html', water: '/water.html' });
   });
 
   it('returns {} when triscope.labs is absent or wrong type', () => {
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo', triscope: { labs: 'no' } }));
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'demo', triscope: { labs: 'no' } }),
+    );
     expect(readProjectLabMap(dir)).toEqual({});
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
     expect(readProjectLabMap(dir)).toEqual({});
@@ -157,9 +175,13 @@ describe('recordError', () => {
   // recordError → logger.error → console.error. We don't want every
   // negative-input assertion to flood the test output, so silence the
   // stderr writes for the duration of this describe.
-  let errSpy;
-  beforeEach(() => { errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); });
-  afterEach(() => { errSpy?.mockRestore(); });
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    errSpy?.mockRestore();
+  });
 
   it('appends a timestamped line; tolerates Error instances and plain strings', () => {
     // We can't directly read the recentErrors array (it's module-private),
@@ -187,7 +209,10 @@ describe('probeStatsFromPng', () => {
   function solidPng(w: number, h: number, rgb: [number, number, number]): Buffer {
     const png = new PNG({ width: w, height: h });
     for (let i = 0; i < png.data.length; i += 4) {
-      png.data[i] = rgb[0]; png.data[i + 1] = rgb[1]; png.data[i + 2] = rgb[2]; png.data[i + 3] = 255;
+      png.data[i] = rgb[0];
+      png.data[i + 1] = rgb[1];
+      png.data[i + 2] = rgb[2];
+      png.data[i + 3] = 255;
     }
     return PNG.sync.write(png);
   }
@@ -222,7 +247,10 @@ describe('probeStatsFromPng', () => {
   it('stride-samples to keep cost bounded (samples stay ≤ ~2400 on a 1280×720 image)', () => {
     const big = new PNG({ width: 1280, height: 720 });
     for (let i = 0; i < big.data.length; i += 4) {
-      big.data[i] = 128; big.data[i + 1] = 128; big.data[i + 2] = 128; big.data[i + 3] = 255;
+      big.data[i] = 128;
+      big.data[i + 1] = 128;
+      big.data[i + 2] = 128;
+      big.data[i + 3] = 255;
     }
     const out = probeStatsFromPng(PNG.sync.write(big));
     // The doc says ~2300; we leave headroom for stride-rounding.

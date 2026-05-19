@@ -13,8 +13,8 @@
 // prints a JSON summary. Exit 0 on pass, non-zero on fail.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { PNG } from 'pngjs';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -75,7 +75,8 @@ function cdpFactory() {
               msg.method,
             )
           ) {
-            (ws.__events ||= []).push(msg);
+            if (!ws.__events) ws.__events = [];
+            ws.__events.push(msg);
           }
         }
       };
@@ -109,8 +110,7 @@ function analyzePng(path) {
     if (px % step !== 0) continue;
     const a = png.data[i + 3] / 255;
     if (a < 0.01) continue;
-    const luma =
-      (0.2126 * png.data[i] + 0.7152 * png.data[i + 1] + 0.0722 * png.data[i + 2]) * a;
+    const luma = (0.2126 * png.data[i] + 0.7152 * png.data[i + 1] + 0.0722 * png.data[i + 2]) * a;
     sum += luma;
     sum2 += luma * luma;
     if (luma > 8) nonBlack++;
