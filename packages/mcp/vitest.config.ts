@@ -8,11 +8,10 @@ export default defineConfig({
       include: ['src/**'],
       // server.ts and browser.ts (full pool) are the MCP stdio entrypoint
       // and the Chromium/CDP driver — both need real subprocess + I/O.
-      // Phase-1 covers their pure helpers only; the live flow is tested
-      // by `triscope smoke` end-to-end against a running dev server.
-      exclude: [
-        'src/server.ts',
-      ],
+      // Phase-2 covers their pure helpers via unit tests; the live flow
+      // is exercised by the smoke job in CI against a running dev server.
+      // Nothing is excluded here so the report shows what's *not* yet
+      // unit-tested in those files.
     },
   },
 });

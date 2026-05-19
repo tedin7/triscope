@@ -40,7 +40,7 @@ import { createLogger } from './logger.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function readProjectName(cwd) {
+export function readProjectName(cwd) {
   if (process.env.TRISCOPE_PROJECT) return process.env.TRISCOPE_PROJECT;
   try {
     const p = join(cwd, 'package.json');
@@ -75,7 +75,7 @@ const shutdown = () => browserPool.dispose();
 process.on('exit', shutdown);
 process.on('SIGINT', () => { shutdown(); process.exit(130); });
 process.on('SIGTERM', () => { shutdown(); process.exit(143); });
-function recordError(source: string, err: unknown) {
+export function recordError(source: string, err: unknown) {
   const detail = (err as any)?.stack ?? (err as any)?.message ?? String(err);
   const msg = `[${new Date().toISOString()}] ${source}: ${detail}`;
   logger.error(source, String((err as any)?.message ?? err), { stack: (err as any)?.stack });
@@ -85,7 +85,7 @@ function recordError(source: string, err: unknown) {
 process.on('uncaughtException', (err) => recordError('uncaughtException', err));
 process.on('unhandledRejection', (err) => recordError('unhandledRejection', err));
 
-function applyPath(data, path) {
+export function applyPath(data, path) {
   if (!path) return data;
   const segs = path.replace(/^\./, '').split('.').filter(Boolean);
   let cur = data;
@@ -108,7 +108,7 @@ async function fetchManifest(): Promise<any> {
   }
 }
 
-function readProjectLabMap(cwd) {
+export function readProjectLabMap(cwd) {
   try {
     const p = join(cwd, 'package.json');
     if (!existsSync(p)) return {};
@@ -122,7 +122,7 @@ function readProjectLabMap(cwd) {
 
 const PROJECT_LABS = readProjectLabMap(process.cwd());
 
-function absolutize(maybePath) {
+export function absolutize(maybePath) {
   if (!maybePath) return null;
   if (/^https?:\/\//.test(maybePath)) return maybePath;
   return `${DEV_URL}${maybePath.startsWith('/') ? '' : '/'}${maybePath}`;
@@ -274,7 +274,7 @@ async function captureViews({ element, labUrl, inline = true }: { element?: stri
 /** Server-side fallback: same math the harness does, but starting from a
  *  decoded PNG buffer instead of a 2D canvas. Stride-samples to ~2300 px
  *  so the cost is bounded (~5 ms per 1280×720 PNG). */
-function probeStatsFromPng(pngBuf: Buffer): {
+export function probeStatsFromPng(pngBuf: Buffer): {
   luminance: number; p5: number; p95: number; dynamicRange: number; samples: number;
 } {
   const img = PNG.sync.read(pngBuf);
@@ -955,7 +955,7 @@ const tools = [
   },
 ];
 
-function jsonResult(value) {
+export function jsonResult(value) {
   let text: string;
   if (value === undefined) text = 'undefined';
   else if (typeof value === 'string') text = value;
@@ -969,7 +969,7 @@ function jsonResult(value) {
 
 export async function startServer() {
   const server = new Server(
-    { name: 'triscope-mcp', version: '0.0.0' },
+    { name: 'triscope-mcp', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 

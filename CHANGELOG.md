@@ -84,17 +84,19 @@ move from `0.0.0` to `0.1.0` together.
 
 ### Notes
 
-- Phase-1 unit-test coverage on the testable surface:
-  - `@triscope/core` 68%
-  - `@triscope/mcp` 62%
+- Unit-test coverage on the testable surface (after Phase-2 helpers):
+  - `@triscope/core` 68% (harness.ts excluded — smoke-tested only)
+  - `@triscope/mcp` 43% (server.ts + browser.ts pure helpers covered;
+    their live MCP/CDP flows are smoke-tested)
   - `@triscope/cli` 83%
   - `create-triscope` 97%
 
-  The WebGPU lab runtime (`harness.ts`), the stdio MCP server
-  (`server.ts`), and the Chromium browser pool (`createBrowserPool`)
-  are exercised end-to-end by the smoke job in CI, not by unit
-  tests — this is intentional; mocking WebGPU/CDP/stdio at the unit
-  level gives line coverage without bug-catching value.
+  291 unit tests in total. The WebGPU lab runtime (`harness.ts`), the
+  full MCP tool-call flow inside `startServer`, and the Chromium
+  browser pool (`createBrowserPool`) are exercised end-to-end by the
+  smoke job in CI rather than by unit tests — mocking
+  WebGPU/CDP/stdio at the unit level produces line coverage without
+  bug-catching value.
 
 - `npm audit` reports 5 moderate vulnerabilities in the
   vitest/vite chain. Resolving them requires a major bump that has
